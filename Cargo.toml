@@ -1,0 +1,30 @@
+[package]
+name = "starky-bn254"
+version = "0.1.1"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+edition = "2021"
+
+[features]
+default = ["parallel", "std", "timing"]
+parallel = ["plonky2/parallel", "plonky2_maybe_rayon/parallel"]
+std = ["anyhow/std", "plonky2/std"]
+timing = ["plonky2/timing"]
+
+[dependencies]
+anyhow = { version = "1.0.40", default-features = false }
+itertools = { version = "0.10.0", default-features = false }
+log = { version = "0.4.14", default-features = false }
+plonky2_maybe_rayon = "0.1.0"
+plonky2 = "0.1.2"
+static_assertions = "1.1.0"
+num = "0.4.0"
+num-bigint = "0.4.3"
+rand = "0.8.5"
+rand_chacha="0.3.1"
+ark-bn254 = "0.4.0"
+ark-ec = "0.4.2"
+ark-ff = "0.4.2"
+ark-std = "0.4.0"
+bitvec = "1.0.1"
+
