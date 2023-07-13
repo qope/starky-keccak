@@ -3,7 +3,7 @@ use crate::keccak::keccak_stark::{NUM_INPUTS, NUM_ROUNDS};
 // 0..24: round flags
 // 24: is_output
 // 25..75: input
-// 2479..2529: output
+// 2479..2529: output = a_prime_prime_prime
 
 pub const fn reg_step(i: usize) -> usize {
     debug_assert!(i < NUM_ROUNDS);

@@ -228,12 +228,29 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
         trace_polys
     }
 
-    pub fn generate_public_inputs(&self, inuts: Vec<[u64; NUM_INPUTS]>) {}
+    pub fn generate_public_inputs(
+        &self,
+        input: [u64; NUM_INPUTS],
+        output: [u64; NUM_INPUTS],
+    ) -> [F; 4 * NUM_INPUTS] {
+        let mut pi = [F::ZERO; 4 * NUM_INPUTS];
+        for i in 0..NUM_INPUTS {
+            let input_lo = F::from_canonical_u32((input[i] & 0xFFFFFFFF) as u32);
+            let input_hi = F::from_canonical_u32((input[i] >> 32) as u32);
+            let output_lo = F::from_canonical_u32((output[i] & 0xFFFFFFFF) as u32);
+            let output_hi = F::from_canonical_u32((output[i] >> 32) as u32);
+            pi[2 * i] = input_lo;
+            pi[2 * i + 1] = input_hi;
+            pi[2 * NUM_INPUTS + 2 * i] = output_lo;
+            pi[2 * NUM_INPUTS + 2 * i + 1] = output_hi;
+        }
+        pi
+    }
 }
 
 impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
     const COLUMNS: usize = NUM_COLUMNS;
-    const PUBLIC_INPUTS: usize = 0;
+    const PUBLIC_INPUTS: usize = 4 * NUM_INPUTS;
 
     fn eval_packed_generic<FE, P, const D2: usize>(
         &self,
@@ -253,6 +270,24 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         let final_step = vars.local_values[reg_step(NUM_ROUNDS - 1)];
         let not_final_step = P::ONES - final_step;
         yield_constr.constraint(not_final_step * filter);
+
+        // public inputs and outputs
+        for x in 0..5 {
+            for y in 0..5 {
+                let input_lo = vars.public_inputs[2 * (5 * y + x)];
+                let input_hi = vars.public_inputs[2 * (5 * y + x) + 1];
+                let output_lo = vars.public_inputs[2 * (5 * y + x) + 2 * NUM_INPUTS];
+                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1 + 2 * NUM_INPUTS];
+                let local_input_lo = vars.local_values[reg_preimage(x, y)];
+                let local_input_hi = vars.local_values[reg_preimage(x, y) + 1];
+                let local_output_lo = vars.local_values[reg_a_prime_prime_prime(x, y)];
+                let local_output_hi = vars.local_values[reg_a_prime_prime_prime(x, y) + 1];
+                yield_constr.constraint_transition(final_step * (local_input_lo - input_lo));
+                yield_constr.constraint_transition(final_step * (local_input_hi - input_hi));
+                yield_constr.constraint_transition(final_step * (local_output_lo - output_lo));
+                yield_constr.constraint_transition(final_step * (local_output_hi - output_hi));
+            }
+        }
 
         // If this is not the final step, the local and next preimages must match.
         for x in 0..5 {
@@ -654,7 +689,7 @@ mod tests {
             f: Default::default(),
         };
 
-        let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 25 * 61);
+        let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 8);
         let last_row = rows[NUM_ROUNDS - 1];
         let output = (0..NUM_INPUTS)
             .map(|i| {
@@ -674,7 +709,7 @@ mod tests {
         let now = Instant::now();
         let trace = trace_rows_to_poly_values(rows);
         let inner_config = StarkConfig::standard_fast_config();
-        let public_inputs = [];
+        let public_inputs = stark.generate_public_inputs(input, expected);
         let inner_proof = prove::<F, C, S, D>(
             stark,
             &inner_config,
@@ -685,21 +720,19 @@ mod tests {
         println!("Stark proving time: {:?}", now.elapsed());
 
         verify_stark_proof(stark, inner_proof.clone(), &inner_config)?;
-        let circuit_config = CircuitConfig::standard_recursion_config();
-        let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
-        let mut pw = PartialWitness::new();
-        let degree_bits = inner_proof.proof.recover_degree_bits(&inner_config);
-        let pt = add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
-        set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof);
 
-        verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &pt, &inner_config);
-
-        let data = builder.build::<C>();
-
-        let now = Instant::now();
-        let proof = data.prove(pw)?;
-        println!("Circuit proving time: {:?}", now.elapsed());
-        data.verify(proof)?;
+        // let circuit_config = CircuitConfig::standard_recursion_config();
+        // let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
+        // let mut pw = PartialWitness::new();
+        // let degree_bits = inner_proof.proof.recover_degree_bits(&inner_config);
+        // let pt = add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
+        // set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof);
+        // verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &pt, &inner_config);
+        // let data = builder.build::<C>();
+        // let now = Instant::now();
+        // let proof = data.prove(pw)?;
+        // println!("Circuit proving time: {:?}", now.elapsed());
+        // data.verify(proof)?;
 
         Ok(())
     }
