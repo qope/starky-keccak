@@ -13,7 +13,7 @@ use plonky2::util::timing::TimingTree;
 use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 use crate::keccak::columns::{
     reg_a, reg_a_prime, reg_a_prime_prime, reg_a_prime_prime_0_0_bit, reg_a_prime_prime_prime,
-    reg_b, reg_c, reg_c_prime, reg_preimage, reg_step, NUM_COLUMNS, REG_FILTER,
+    reg_b, reg_c, reg_c_prime, reg_step, NUM_COLUMNS, REG_FILTER,
 };
 use crate::keccak::constants::{rc_value, rc_value_bit};
 use crate::keccak::logic::{
@@ -64,19 +64,6 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
 
     fn generate_trace_rows_for_perm(&self, input: [u64; NUM_INPUTS]) -> Vec<[F; NUM_COLUMNS]> {
         let mut rows = vec![[F::ZERO; NUM_COLUMNS]; NUM_ROUNDS];
-
-        // Populate the preimage for each row.
-        for round in 0..24 {
-            for x in 0..5 {
-                for y in 0..5 {
-                    let input_xy = input[y * 5 + x];
-                    let reg_preimage_lo = reg_preimage(x, y);
-                    let reg_preimage_hi = reg_preimage_lo + 1;
-                    rows[round][reg_preimage_lo] = F::from_canonical_u64(input_xy & 0xFFFFFFFF);
-                    rows[round][reg_preimage_hi] = F::from_canonical_u64(input_xy >> 32);
-                }
-            }
-        }
 
         // Populate the round input for the first round.
         for x in 0..5 {
@@ -228,21 +215,13 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
         trace_polys
     }
 
-    pub fn generate_public_inputs(
-        &self,
-        input: [u64; NUM_INPUTS],
-        output: [u64; NUM_INPUTS],
-    ) -> [F; 4 * NUM_INPUTS] {
-        let mut pi = [F::ZERO; 4 * NUM_INPUTS];
+    pub fn generate_public_inputs(&self, output: [u64; NUM_INPUTS]) -> [F; 2 * NUM_INPUTS] {
+        let mut pi = [F::ZERO; 2 * NUM_INPUTS];
         for i in 0..NUM_INPUTS {
-            let input_lo = F::from_canonical_u32((input[i] & 0xFFFFFFFF) as u32);
-            let input_hi = F::from_canonical_u32((input[i] >> 32) as u32);
             let output_lo = F::from_canonical_u32((output[i] & 0xFFFFFFFF) as u32);
             let output_hi = F::from_canonical_u32((output[i] >> 32) as u32);
-            pi[2 * i] = input_lo;
-            pi[2 * i + 1] = input_hi;
-            pi[2 * NUM_INPUTS + 2 * i] = output_lo;
-            pi[2 * NUM_INPUTS + 2 * i + 1] = output_hi;
+            pi[2 * i] = output_lo;
+            pi[2 * i + 1] = output_hi;
         }
         pi
     }
@@ -250,7 +229,7 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
 
 impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
     const COLUMNS: usize = NUM_COLUMNS;
-    const PUBLIC_INPUTS: usize = 4 * NUM_INPUTS;
+    const PUBLIC_INPUTS: usize = 2 * NUM_INPUTS;
 
     fn eval_packed_generic<FE, P, const D2: usize>(
         &self,
@@ -274,27 +253,12 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         // public inputs and outputs
         for x in 0..5 {
             for y in 0..5 {
-                let input_lo = vars.public_inputs[2 * (5 * y + x)];
-                let input_hi = vars.public_inputs[2 * (5 * y + x) + 1];
-                let output_lo = vars.public_inputs[2 * (5 * y + x) + 2 * NUM_INPUTS];
-                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1 + 2 * NUM_INPUTS];
-                let local_input_lo = vars.local_values[reg_preimage(x, y)];
-                let local_input_hi = vars.local_values[reg_preimage(x, y) + 1];
+                let output_lo = vars.public_inputs[2 * (5 * y + x)];
+                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1];
                 let local_output_lo = vars.local_values[reg_a_prime_prime_prime(x, y)];
                 let local_output_hi = vars.local_values[reg_a_prime_prime_prime(x, y) + 1];
-                yield_constr.constraint_transition(final_step * (local_input_lo - input_lo));
-                yield_constr.constraint_transition(final_step * (local_input_hi - input_hi));
-                yield_constr.constraint_transition(final_step * (local_output_lo - output_lo));
-                yield_constr.constraint_transition(final_step * (local_output_hi - output_hi));
-            }
-        }
-
-        // If this is not the final step, the local and next preimages must match.
-        for x in 0..5 {
-            for y in 0..5 {
-                let preimage = reg_preimage(x, y);
-                let diff = vars.local_values[preimage] - vars.next_values[preimage];
-                yield_constr.constraint_transition(not_final_step * diff);
+                yield_constr.constraint_transition(filter * (local_output_lo - output_lo));
+                yield_constr.constraint_transition(filter * (local_output_hi - output_hi));
             }
         }
 
@@ -459,14 +423,21 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         let constraint = builder.mul_extension(not_final_step, filter);
         yield_constr.constraint(builder, constraint);
 
-        // If this is not the final step, the local and next preimages must match.
+        // public inputs and outputs
         for x in 0..5 {
             for y in 0..5 {
-                let preimage = reg_preimage(x, y);
-                let diff =
-                    builder.sub_extension(vars.local_values[preimage], vars.next_values[preimage]);
-                let constraint = builder.mul_extension(not_final_step, diff);
-                yield_constr.constraint_transition(builder, constraint);
+                let output_lo = vars.public_inputs[2 * (5 * y + x)];
+                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1];
+                let local_output_lo = vars.local_values[reg_a_prime_prime_prime(x, y)];
+                let local_output_hi = vars.local_values[reg_a_prime_prime_prime(x, y) + 1];
+
+                let diff = builder.sub_extension(local_output_lo, output_lo);
+                let t = builder.mul_extension(filter, diff);
+                yield_constr.constraint_transition(builder, t);
+
+                let diff = builder.sub_extension(local_output_hi, output_hi);
+                let t = builder.mul_extension(filter, diff);
+                yield_constr.constraint_transition(builder, t);
             }
         }
 
@@ -689,27 +660,17 @@ mod tests {
             f: Default::default(),
         };
 
-        let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 8);
-        let last_row = rows[NUM_ROUNDS - 1];
-        let output = (0..NUM_INPUTS)
-            .map(|i| {
-                let hi = last_row[reg_output_limb(2 * i + 1)].to_canonical_u64();
-                let lo = last_row[reg_output_limb(2 * i)].to_canonical_u64();
-                (hi << 32) | lo
-            })
-            .collect::<Vec<_>>();
-
+        let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 1000);
         let expected = {
             let mut state = input;
             keccakf(&mut state);
             state
         };
-        assert_eq!(output, expected);
 
         let now = Instant::now();
         let trace = trace_rows_to_poly_values(rows);
         let inner_config = StarkConfig::standard_fast_config();
-        let public_inputs = stark.generate_public_inputs(input, expected);
+        let public_inputs = stark.generate_public_inputs(expected);
         let inner_proof = prove::<F, C, S, D>(
             stark,
             &inner_config,
@@ -718,7 +679,6 @@ mod tests {
             &mut TimingTree::default(),
         )?;
         println!("Stark proving time: {:?}", now.elapsed());
-
         verify_stark_proof(stark, inner_proof.clone(), &inner_config)?;
 
         // let circuit_config = CircuitConfig::standard_recursion_config();

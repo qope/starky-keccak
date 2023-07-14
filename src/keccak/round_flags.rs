@@ -6,7 +6,7 @@ use plonky2::plonk::circuit_builder::CircuitBuilder;
 
 use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 use crate::keccak::columns::{reg_step, NUM_COLUMNS};
-use crate::keccak::keccak_stark::NUM_ROUNDS;
+use crate::keccak::keccak_stark_multi::NUM_ROUNDS;
 use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
 pub(crate) fn eval_round_flags<F: Field, P: PackedField<Scalar = F>, const PUBLIC_INPUTS: usize>(

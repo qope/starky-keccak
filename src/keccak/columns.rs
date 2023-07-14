@@ -1,4 +1,4 @@
-use crate::keccak::keccak_stark::{NUM_INPUTS, NUM_ROUNDS};
+use crate::keccak::keccak_stark_multi::{NUM_INPUTS, NUM_ROUNDS};
 
 // 0..24: round flags
 // 24: is_output
@@ -34,15 +34,7 @@ const R: [[u8; 5]; 5] = [
     [27, 20, 39, 8, 14],
 ];
 
-const START_PREIMAGE: usize = NUM_ROUNDS + 1;
-/// Registers to hold the original input to a permutation, i.e. the input to the first round.
-pub(crate) const fn reg_preimage(x: usize, y: usize) -> usize {
-    debug_assert!(x < 5);
-    debug_assert!(y < 5);
-    START_PREIMAGE + (x * 5 + y) * 2
-}
-
-const START_A: usize = START_PREIMAGE + 5 * 5 * 2;
+const START_A: usize = NUM_ROUNDS + 1;
 pub(crate) const fn reg_a(x: usize, y: usize) -> usize {
     debug_assert!(x < 5);
     debug_assert!(y < 5);
