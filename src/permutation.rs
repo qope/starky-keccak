@@ -15,7 +15,6 @@ use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::iop::target::Target;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 use plonky2::plonk::config::{AlgebraicHasher, Hasher};
-use plonky2::plonk::plonk_common::{reduce_with_powers, reduce_with_powers_ext_circuit};
 use plonky2::util::reducing::{ReducingFactor, ReducingFactorTarget};
 use plonky2_maybe_rayon::*;
 
@@ -55,32 +54,6 @@ pub(crate) struct PermutationChallenge<T: Copy> {
     pub(crate) beta: T,
     /// Random offset that's added to the beta-reduced column values.
     pub(crate) gamma: T,
-}
-
-impl<F: Field> PermutationChallenge<F> {
-    pub(crate) fn combine<'a, FE, P, T: IntoIterator<Item = &'a P>, const D2: usize>(
-        &self,
-        terms: T,
-    ) -> P
-    where
-        FE: FieldExtension<D2, BaseField = F>,
-        P: PackedField<Scalar = FE>,
-        T::IntoIter: DoubleEndedIterator,
-    {
-        reduce_with_powers(terms, FE::from_basefield(self.beta)) + FE::from_basefield(self.gamma)
-    }
-}
-
-impl PermutationChallenge<Target> {
-    pub(crate) fn combine_circuit<F: RichField + Extendable<D>, const D: usize>(
-        &self,
-        builder: &mut CircuitBuilder<F, D>,
-        terms: &[ExtensionTarget<D>],
-    ) -> ExtensionTarget<D> {
-        let reduced = reduce_with_powers_ext_circuit(builder, terms, self.beta);
-        let gamma = builder.convert_to_ext(self.gamma);
-        builder.add_extension(reduced, gamma)
-    }
 }
 
 /// Like `PermutationChallenge`, but with `num_challenges` copies to boost soundness.
