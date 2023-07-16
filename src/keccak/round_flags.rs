@@ -5,11 +5,16 @@ use plonky2::hash::hash_types::RichField;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 
 use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
-use crate::keccak::columns::{reg_step, NUM_COLUMNS};
+use crate::keccak::columns::reg_step;
 use crate::keccak::keccak_stark_multi::NUM_ROUNDS;
 use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
-pub(crate) fn eval_round_flags<F: Field, P: PackedField<Scalar = F>, const PUBLIC_INPUTS: usize>(
+pub(crate) fn eval_round_flags<
+    F: Field,
+    P: PackedField<Scalar = F>,
+    const NUM_COLUMNS: usize,
+    const PUBLIC_INPUTS: usize,
+>(
     vars: StarkEvaluationVars<F, P, NUM_COLUMNS, PUBLIC_INPUTS>,
     yield_constr: &mut ConstraintConsumer<P>,
 ) {
@@ -29,6 +34,7 @@ pub(crate) fn eval_round_flags<F: Field, P: PackedField<Scalar = F>, const PUBLI
 pub(crate) fn eval_round_flags_recursively<
     F: RichField + Extendable<D>,
     const D: usize,
+    const NUM_COLUMNS: usize,
     const PUBLIC_INPUTS: usize,
 >(
     builder: &mut CircuitBuilder<F, D>,

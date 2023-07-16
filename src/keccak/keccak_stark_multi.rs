@@ -24,6 +24,8 @@ use crate::stark::Stark;
 use crate::util::trace_rows_to_poly_values;
 use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
+use super::pulse::{eval_pulse, eval_pulse_circuit};
+
 /// Number of rounds in a Keccak permutation.
 pub(crate) const NUM_ROUNDS: usize = 24;
 
@@ -228,7 +230,7 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
 }
 
 impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
-    const COLUMNS: usize = NUM_COLUMNS;
+    const COLUMNS: usize = NUM_COLUMNS + 5;
     const PUBLIC_INPUTS: usize = 2 * NUM_INPUTS;
 
     fn eval_packed_generic<FE, P, const D2: usize>(
@@ -249,6 +251,15 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         let final_step = vars.local_values[reg_step(NUM_ROUNDS - 1)];
         let not_final_step = P::ONES - final_step;
         yield_constr.constraint(not_final_step * filter);
+
+        // eval pulse
+        eval_pulse(
+            yield_constr,
+            vars.local_values,
+            vars.next_values,
+            NUM_COLUMNS,
+            vec![0, 23],
+        );
 
         // public inputs and outputs
         for x in 0..5 {
@@ -422,6 +433,16 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         let not_final_step = builder.sub_extension(one_ext, final_step);
         let constraint = builder.mul_extension(not_final_step, filter);
         yield_constr.constraint(builder, constraint);
+
+        // eval pulse
+        eval_pulse_circuit(
+            builder,
+            yield_constr,
+            vars.local_values,
+            vars.next_values,
+            NUM_COLUMNS,
+            vec![0, 23],
+        );
 
         // public inputs and outputs
         for x in 0..5 {
@@ -601,17 +622,21 @@ mod tests {
     use std::time::Instant;
 
     use anyhow::Result;
+    use itertools::Itertools;
+    use plonky2::field::polynomial::PolynomialValues;
     use plonky2::field::types::PrimeField64;
     use plonky2::iop::witness::PartialWitness;
     use plonky2::plonk::circuit_builder::CircuitBuilder;
     use plonky2::plonk::circuit_data::CircuitConfig;
     use plonky2::plonk::config::{GenericConfig, PoseidonGoldilocksConfig};
     use plonky2::util::timing::TimingTree;
+    use plonky2::util::transpose;
     use tiny_keccak::keccakf;
 
     use crate::config::StarkConfig;
-    use crate::keccak::columns::reg_output_limb;
+    use crate::keccak::columns::{reg_output_limb, NUM_COLUMNS};
     use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS, NUM_ROUNDS};
+    use crate::keccak::pulse::generate_pulse;
     use crate::prover::prove;
     use crate::recursive_verifier::{
         add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
@@ -661,6 +686,15 @@ mod tests {
         };
 
         let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 1000);
+        let mut trace_cols = transpose(&rows.iter().map(|v| v.to_vec()).collect_vec());
+
+        generate_pulse(&mut trace_cols, vec![0, 23]);
+
+        let trace = trace_cols
+            .into_iter()
+            .map(|column| PolynomialValues::new(column))
+            .collect();
+
         let expected = {
             let mut state = input;
             keccakf(&mut state);
@@ -668,7 +702,6 @@ mod tests {
         };
 
         let now = Instant::now();
-        let trace = trace_rows_to_poly_values(rows);
         let inner_config = StarkConfig::standard_fast_config();
         let public_inputs = stark.generate_public_inputs(expected);
         let inner_proof = prove::<F, C, S, D>(
@@ -681,18 +714,18 @@ mod tests {
         println!("Stark proving time: {:?}", now.elapsed());
         verify_stark_proof(stark, inner_proof.clone(), &inner_config)?;
 
-        // let circuit_config = CircuitConfig::standard_recursion_config();
-        // let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
-        // let mut pw = PartialWitness::new();
-        // let degree_bits = inner_proof.proof.recover_degree_bits(&inner_config);
-        // let pt = add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
-        // set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof);
-        // verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &pt, &inner_config);
-        // let data = builder.build::<C>();
-        // let now = Instant::now();
-        // let proof = data.prove(pw)?;
-        // println!("Circuit proving time: {:?}", now.elapsed());
-        // data.verify(proof)?;
+        let circuit_config = CircuitConfig::standard_recursion_config();
+        let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
+        let mut pw = PartialWitness::new();
+        let degree_bits = inner_proof.proof.recover_degree_bits(&inner_config);
+        let pt = add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
+        set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof);
+        verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &pt, &inner_config);
+        let data = builder.build::<C>();
+        let now = Instant::now();
+        let proof = data.prove(pw)?;
+        println!("Circuit proving time: {:?}", now.elapsed());
+        data.verify(proof)?;
 
         Ok(())
     }
