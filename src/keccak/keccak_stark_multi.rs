@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use itertools::Itertools;
 use plonky2::field::extension::{Extendable, FieldExtension};
 use plonky2::field::packed::PackedField;
 use plonky2::field::polynomial::PolynomialValues;
@@ -11,6 +12,7 @@ use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer
 use crate::keccak::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
 
 use crate::keccak::round_flags::{eval_round_flags, eval_round_flags_recursively};
+use crate::keccak::utils::{split_lo_and_hi, write_state};
 use crate::stark::Stark;
 use crate::util::trace_rows_to_poly_values;
 use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
@@ -19,13 +21,19 @@ use super::columns::reg_a_prime_prime_prime;
 use super::keccak::{
     eval_keccak_round, eval_keccak_round_circuit, generate_keccak_trace_row_for_round,
 };
-use super::pulse::{eval_pulse, eval_pulse_circuit};
+use super::pulse::{eval_pulse, eval_pulse_circuit, get_pulse_col};
+use super::utils::{
+    gen_keccak_pulse_positions, read_input, read_input_target, read_output, read_output_target,
+    read_state, state_eq, state_eq_circuit,
+};
 
 /// Number of rounds in a Keccak permutation.
 pub(crate) const NUM_ROUNDS: usize = 24;
 
 /// Number of 64-bit elements in the Keccak permutation input.
 pub(crate) const NUM_INPUTS: usize = 25;
+
+const NUM_IO_PAIRS: usize = 61;
 
 #[derive(Copy, Clone, Default)]
 pub struct KeccakStark<F, const D: usize> {
@@ -37,10 +45,10 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
     /// in our lookup arguments, as those are computed after transposing to column-wise form.
     fn generate_trace_rows(
         &self,
-        inputs: Vec<[u64; NUM_INPUTS]>,
+        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
         min_rows: usize,
     ) -> Vec<[F; NUM_COLUMNS]> {
-        let num_rows = (inputs.len() * NUM_ROUNDS)
+        let num_rows = (NUM_IO_PAIRS * NUM_ROUNDS)
             .max(min_rows)
             .next_power_of_two();
         let mut rows = Vec::with_capacity(num_rows);
@@ -97,7 +105,7 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
 
     pub fn generate_trace(
         &self,
-        inputs: Vec<[u64; NUM_INPUTS]>,
+        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
         min_rows: usize,
         timing: &mut TimingTree,
     ) -> Vec<PolynomialValues<F>> {
@@ -115,21 +123,31 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
         trace_polys
     }
 
-    pub fn generate_public_inputs(&self, output: [u64; NUM_INPUTS]) -> [F; 2 * NUM_INPUTS] {
-        let mut pi = [F::ZERO; 2 * NUM_INPUTS];
-        for i in 0..NUM_INPUTS {
-            let output_lo = F::from_canonical_u32((output[i] & 0xFFFFFFFF) as u32);
-            let output_hi = F::from_canonical_u32((output[i] >> 32) as u32);
-            pi[2 * i] = output_lo;
-            pi[2 * i + 1] = output_hi;
-        }
+    pub fn generate_public_inputs(
+        &self,
+        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
+        outputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
+    ) -> [F; 2 * 50 * NUM_IO_PAIRS] {
+        let mut pi = [F::ZERO; 2 * 50 * NUM_IO_PAIRS];
+        let mut cur_col = 0;
+        inputs
+            .iter()
+            .zip(outputs.iter())
+            .map(|(&input, &output)| {
+                let input = split_lo_and_hi(input).map(F::from_canonical_u32);
+                let output = split_lo_and_hi(output).map(F::from_canonical_u32);
+                write_state(&mut pi, &input, &mut cur_col);
+                write_state(&mut pi, &output, &mut cur_col);
+            })
+            .collect_vec();
+        assert!(cur_col == 2 * 50 * NUM_IO_PAIRS);
         pi
     }
 }
 
 impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
-    const COLUMNS: usize = NUM_COLUMNS + 5;
-    const PUBLIC_INPUTS: usize = 2 * NUM_INPUTS;
+    const COLUMNS: usize = NUM_COLUMNS + 1 + 4 * NUM_IO_PAIRS;
+    const PUBLIC_INPUTS: usize = 4 * NUM_INPUTS * NUM_IO_PAIRS;
 
     fn eval_packed_generic<FE, P, const D2: usize>(
         &self,
@@ -156,20 +174,29 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
             vars.local_values,
             vars.next_values,
             NUM_COLUMNS,
-            vec![0, 23],
+            gen_keccak_pulse_positions(NUM_IO_PAIRS),
         );
 
-        // public inputs and outputs
-        for x in 0..5 {
-            for y in 0..5 {
-                let output_lo = vars.public_inputs[2 * (5 * y + x)];
-                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1];
-                let local_output_lo = vars.local_values[reg_a_prime_prime_prime(x, y)];
-                let local_output_hi = vars.local_values[reg_a_prime_prime_prime(x, y) + 1];
-                yield_constr.constraint_transition(filter * (local_output_lo - output_lo));
-                yield_constr.constraint_transition(filter * (local_output_hi - output_hi));
-            }
+        let start_pulse_col = NUM_COLUMNS;
+
+        let mut input_flags = vec![];
+        let mut output_flags = vec![];
+        for i in 0..NUM_IO_PAIRS {
+            input_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i)]);
+            output_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i + 1)]);
         }
+
+        // public inputs and outputs
+        let pi: [P; Self::PUBLIC_INPUTS] = vars.public_inputs.map(|x| x.into());
+        let input = read_input(vars.local_values);
+        let output = read_output(vars.local_values);
+        let mut cur_col = 0;
+        (0..NUM_IO_PAIRS).for_each(|i| {
+            let input_pi = read_state(&pi, &mut cur_col);
+            let output_pi = read_state(&pi, &mut cur_col);
+            state_eq(yield_constr, input_flags[i], input, input_pi);
+            state_eq(yield_constr, output_flags[i], output, output_pi);
+        });
 
         eval_keccak_round::<FE, P, D, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>(
             yield_constr,
@@ -197,31 +224,35 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         yield_constr.constraint(builder, constraint);
 
         // eval pulse
+        let pulse_positions = gen_keccak_pulse_positions(NUM_IO_PAIRS);
         eval_pulse_circuit(
             builder,
             yield_constr,
             vars.local_values,
             vars.next_values,
             NUM_COLUMNS,
-            vec![0, 23],
+            pulse_positions.clone(),
         );
 
+        let start_pulse_col = NUM_COLUMNS;
+
+        let mut input_flags = vec![];
+        let mut output_flags = vec![];
+        for i in 0..NUM_IO_PAIRS {
+            input_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i)]);
+            output_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i + 1)]);
+        }
+
         // public inputs and outputs
-        for x in 0..5 {
-            for y in 0..5 {
-                let output_lo = vars.public_inputs[2 * (5 * y + x)];
-                let output_hi = vars.public_inputs[2 * (5 * y + x) + 1];
-                let local_output_lo = vars.local_values[reg_a_prime_prime_prime(x, y)];
-                let local_output_hi = vars.local_values[reg_a_prime_prime_prime(x, y) + 1];
-
-                let diff = builder.sub_extension(local_output_lo, output_lo);
-                let t = builder.mul_extension(filter, diff);
-                yield_constr.constraint_transition(builder, t);
-
-                let diff = builder.sub_extension(local_output_hi, output_hi);
-                let t = builder.mul_extension(filter, diff);
-                yield_constr.constraint_transition(builder, t);
-            }
+        let pi = vars.public_inputs;
+        let input = read_input_target(builder, vars.local_values);
+        let output = read_output_target(builder, vars.local_values);
+        let mut cur_col = 0;
+        for i in 0..NUM_IO_PAIRS {
+            let input_pi = read_state(pi, &mut cur_col);
+            let output_pi = read_state(pi, &mut cur_col);
+            state_eq_circuit(builder, yield_constr, input_flags[i], input, input_pi);
+            state_eq_circuit(builder, yield_constr, output_flags[i], output, output_pi);
         }
 
         eval_keccak_round_circuit::<F, D, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>(
@@ -252,8 +283,9 @@ mod tests {
     use tiny_keccak::keccakf;
 
     use crate::config::StarkConfig;
-    use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS};
+    use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS, NUM_IO_PAIRS};
     use crate::keccak::pulse::generate_pulse;
+    use crate::keccak::utils::gen_keccak_pulse_positions;
     use crate::prover::prove;
     use crate::recursive_verifier::{
         add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
@@ -290,7 +322,14 @@ mod tests {
 
     #[test]
     fn test_keccak_multi() -> Result<()> {
-        let input: [u64; NUM_INPUTS] = rand::random();
+        let inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS] = (0..NUM_IO_PAIRS)
+            .map(|_| {
+                let r: [u64; NUM_INPUTS] = rand::random();
+                r
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap();
 
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
@@ -301,25 +340,25 @@ mod tests {
             f: Default::default(),
         };
 
-        let rows = stark.generate_trace_rows(vec![input.try_into().unwrap()], 1000);
+        let rows = stark.generate_trace_rows(inputs, 1000);
         let mut trace_cols = transpose(&rows.iter().map(|v| v.to_vec()).collect_vec());
 
-        generate_pulse(&mut trace_cols, vec![0, 23]);
+        generate_pulse(&mut trace_cols, gen_keccak_pulse_positions(NUM_IO_PAIRS));
 
         let trace = trace_cols
             .into_iter()
             .map(|column| PolynomialValues::new(column))
             .collect();
 
-        let expected = {
+        let outputs = inputs.map(|input| {
             let mut state = input;
             keccakf(&mut state);
             state
-        };
+        });
 
         let now = Instant::now();
         let inner_config = StarkConfig::standard_fast_config();
-        let public_inputs = stark.generate_public_inputs(expected);
+        let public_inputs = stark.generate_public_inputs(inputs, outputs);
         let inner_proof = prove::<F, C, S, D>(
             stark,
             &inner_config,

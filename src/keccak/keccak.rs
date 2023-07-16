@@ -140,7 +140,6 @@ pub fn eval_keccak_round<
             yield_constr.constraint(c_prime - xor);
         }
     }
-
     // Check that the input limbs are consistent with A' and D.
     // A[x, y, z] = xor(A'[x, y, z], D[x, y, z])
     //            = xor(A'[x, y, z], C[x - 1, z], C[x + 1, z - 1])
@@ -194,7 +193,6 @@ pub fn eval_keccak_round<
                     ),
                 )
             };
-
             let reg_lo = reg_a_prime_prime(x, y);
             let reg_hi = reg_lo + 1;
             let lo = vars.local_values[reg_lo];
@@ -205,7 +203,6 @@ pub fn eval_keccak_round<
             let computed_hi = (32..64)
                 .rev()
                 .fold(P::ZEROS, |acc, z| acc.doubles() + get_bit(z));
-
             yield_constr.constraint(computed_lo - lo);
             yield_constr.constraint(computed_hi - hi);
         }

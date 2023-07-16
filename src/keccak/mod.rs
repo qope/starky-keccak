@@ -6,3 +6,4 @@ pub mod keccak_stark_multi;
 pub mod logic;
 pub mod pulse;
 pub mod round_flags;
+pub mod utils;
