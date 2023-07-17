@@ -1,3 +1,3 @@
-# starky-bn254
+# starky-keccak
 
 under development
