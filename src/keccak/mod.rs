@@ -2,6 +2,7 @@ pub mod columns;
 pub mod constants;
 pub mod keccak;
 pub mod keccak_stark_multi;
+pub mod keccak_wrapper;
 pub mod logic;
 pub mod pulse;
 pub mod round_flags;
