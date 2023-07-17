@@ -51,7 +51,7 @@ pub fn eval_pulse<P: PackedField, const N: usize>(
 ) {
     let counter = lv[start_pulse_col];
     yield_constr.constraint_first_row(counter);
-    let next_counter = nv[start_pulse_col];
+    let next_counter: P = nv[start_pulse_col];
     yield_constr.constraint_transition(next_counter - counter - P::ONES);
     for (i, &pos) in pulse_positions.iter().enumerate() {
         let counter_minus_pos = counter - P::Scalar::from_canonical_usize(pos);

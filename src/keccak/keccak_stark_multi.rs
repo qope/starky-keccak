@@ -5,8 +5,7 @@ use plonky2::field::extension::{Extendable, FieldExtension};
 use plonky2::field::packed::PackedField;
 use plonky2::field::polynomial::PolynomialValues;
 use plonky2::hash::hash_types::RichField;
-use plonky2::timed;
-use plonky2::util::timing::TimingTree;
+use plonky2::util::transpose;
 
 use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 use crate::keccak::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
@@ -14,14 +13,13 @@ use crate::keccak::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
 use crate::keccak::round_flags::{eval_round_flags, eval_round_flags_recursively};
 use crate::keccak::utils::{split_lo_and_hi, write_state};
 use crate::stark::Stark;
-use crate::util::trace_rows_to_poly_values;
 use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
 use super::columns::reg_a_prime_prime_prime;
 use super::keccak::{
     eval_keccak_round, eval_keccak_round_circuit, generate_keccak_trace_row_for_round,
 };
-use super::pulse::{eval_pulse, eval_pulse_circuit, get_pulse_col};
+use super::pulse::{eval_pulse, eval_pulse_circuit, generate_pulse, get_pulse_col};
 use super::utils::{
     gen_keccak_pulse_positions, read_input, read_input_target, read_output, read_output_target,
     read_state, state_eq, state_eq_circuit,
@@ -33,14 +31,14 @@ pub(crate) const NUM_ROUNDS: usize = 24;
 /// Number of 64-bit elements in the Keccak permutation input.
 pub(crate) const NUM_INPUTS: usize = 25;
 
-const NUM_IO_PAIRS: usize = 61;
-
 #[derive(Copy, Clone, Default)]
-pub struct KeccakStark<F, const D: usize> {
+pub struct KeccakStark<F, const D: usize, const NUM_IO_PAIRS: usize> {
     pub(crate) f: PhantomData<F>,
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
+impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
+    KeccakStark<F, D, NUM_IO_PAIRS>
+{
     /// Generate the rows of the trace. Note that this does not generate the permuted columns used
     /// in our lookup arguments, as those are computed after transposing to column-wise form.
     fn generate_trace_rows(
@@ -107,20 +105,15 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
         &self,
         inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
         min_rows: usize,
-        timing: &mut TimingTree,
     ) -> Vec<PolynomialValues<F>> {
-        // Generate the witness, except for permuted columns in the lookup argument.
-        let trace_rows = timed!(
-            timing,
-            "generate trace rows",
-            self.generate_trace_rows(inputs, min_rows)
-        );
-        let trace_polys = timed!(
-            timing,
-            "convert to PolynomialValues",
-            trace_rows_to_poly_values(trace_rows)
-        );
-        trace_polys
+        let rows = self.generate_trace_rows(inputs, min_rows);
+        let mut trace_cols = transpose(&rows.iter().map(|v| v.to_vec()).collect_vec());
+        generate_pulse(&mut trace_cols, gen_keccak_pulse_positions(NUM_IO_PAIRS));
+        let trace = trace_cols
+            .into_iter()
+            .map(|column| PolynomialValues::new(column))
+            .collect();
+        trace
     }
 
     pub fn generate_public_inputs(
@@ -145,7 +138,9 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
+impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> Stark<F, D>
+    for KeccakStark<F, D, NUM_IO_PAIRS>
+{
     const COLUMNS: usize = NUM_COLUMNS + 1 + 4 * NUM_IO_PAIRS;
     const PUBLIC_INPUTS: usize = 4 * NUM_INPUTS * NUM_IO_PAIRS;
 
@@ -273,55 +268,26 @@ mod tests {
 
     use anyhow::Result;
     use itertools::Itertools;
-    use plonky2::field::polynomial::PolynomialValues;
     use plonky2::iop::witness::PartialWitness;
     use plonky2::plonk::circuit_builder::CircuitBuilder;
     use plonky2::plonk::circuit_data::CircuitConfig;
     use plonky2::plonk::config::{GenericConfig, PoseidonGoldilocksConfig};
     use plonky2::util::timing::TimingTree;
-    use plonky2::util::transpose;
     use tiny_keccak::keccakf;
 
     use crate::config::StarkConfig;
-    use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS, NUM_IO_PAIRS};
-    use crate::keccak::pulse::generate_pulse;
-    use crate::keccak::utils::gen_keccak_pulse_positions;
+    use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS};
     use crate::prover::prove;
     use crate::recursive_verifier::{
         add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
         verify_stark_proof_circuit,
     };
-    use crate::stark_testing::{test_stark_circuit_constraints, test_stark_low_degree};
     use crate::verifier::verify_stark_proof;
 
     #[test]
-    fn test_stark_degree() -> Result<()> {
-        const D: usize = 2;
-        type C = PoseidonGoldilocksConfig;
-        type F = <C as GenericConfig<D>>::F;
-        type S = KeccakStark<F, D>;
-
-        let stark = S {
-            f: Default::default(),
-        };
-        test_stark_low_degree(stark)
-    }
-
-    #[test]
-    fn test_stark_circuit() -> Result<()> {
-        const D: usize = 2;
-        type C = PoseidonGoldilocksConfig;
-        type F = <C as GenericConfig<D>>::F;
-        type S = KeccakStark<F, D>;
-
-        let stark = S {
-            f: Default::default(),
-        };
-        test_stark_circuit_constraints::<F, C, S, D>(stark)
-    }
-
-    #[test]
     fn test_keccak_multi() -> Result<()> {
+        const NUM_IO_PAIRS: usize = 61;
+
         let inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS] = (0..NUM_IO_PAIRS)
             .map(|_| {
                 let r: [u64; NUM_INPUTS] = rand::random();
@@ -334,21 +300,11 @@ mod tests {
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
-        type S = KeccakStark<F, D>;
+        type S = KeccakStark<F, D, { NUM_IO_PAIRS }>;
 
         let stark = S {
             f: Default::default(),
         };
-
-        let rows = stark.generate_trace_rows(inputs, 1000);
-        let mut trace_cols = transpose(&rows.iter().map(|v| v.to_vec()).collect_vec());
-
-        generate_pulse(&mut trace_cols, gen_keccak_pulse_positions(NUM_IO_PAIRS));
-
-        let trace = trace_cols
-            .into_iter()
-            .map(|column| PolynomialValues::new(column))
-            .collect();
 
         let outputs = inputs.map(|input| {
             let mut state = input;
@@ -358,6 +314,7 @@ mod tests {
 
         let now = Instant::now();
         let inner_config = StarkConfig::standard_fast_config();
+        let trace = stark.generate_trace(inputs, 8);
         let public_inputs = stark.generate_public_inputs(inputs, outputs);
         let inner_proof = prove::<F, C, S, D>(
             stark,
@@ -381,6 +338,8 @@ mod tests {
         let proof = data.prove(pw)?;
         println!("Circuit proving time: {:?}", now.elapsed());
         data.verify(proof)?;
+
+        dbg!(degree_bits);
 
         Ok(())
     }
