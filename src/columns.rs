@@ -1,4 +1,4 @@
-use crate::keccak::keccak_stark_multi::{NUM_INPUTS, NUM_ROUNDS};
+use crate::keccak_stark_multi::{NUM_INPUTS, NUM_ROUNDS};
 
 // 0..24: round flags
 // 24: is_output

@@ -1,3 +1,4 @@
+use crate::keccak_stark_multi::{KeccakStark, NUM_ROUNDS};
 use itertools::Itertools;
 use plonky2::{
     field::extension::Extendable,
@@ -15,11 +16,8 @@ use plonky2::{
     },
     util::timing::TimingTree,
 };
-use tiny_keccak::keccakf;
-
-use crate::{
+use starky::{
     config::StarkConfig,
-    keccak::keccak_stark_multi::{KeccakStark, NUM_ROUNDS},
     proof::StarkProofWithPublicInputsTarget,
     prover::prove,
     recursive_verifier::{
@@ -28,6 +26,7 @@ use crate::{
     },
     verifier::verify_stark_proof,
 };
+use tiny_keccak::keccakf;
 
 pub fn keccakf_u32(input: [u32; 50]) -> [u32; 50] {
     let mut state = input
@@ -120,7 +119,7 @@ type F = <C as GenericConfig<D>>::F;
 
 pub struct Keccak256Circuit {
     pub data: CircuitData<F, C, D>,
-    pub stark_proof_t: StarkProofWithPublicInputsTarget<2>,
+    pub stark_proof_t: StarkProofWithPublicInputsTarget<D>,
     pub input_t: Vec<Target>,
     pub output_t: [Target; 8],
 }
@@ -220,7 +219,7 @@ mod tests {
     use std::time::Instant;
 
     use super::{build_keccak256_circuit, generate_keccak256_proof, keccak256, INPUT_LEN};
-    use crate::keccak::keccak256::{keccak256_circuit_with_statements, xor_circuit};
+    use crate::keccak256::{keccak256_circuit_with_statements, xor_circuit};
     use itertools::Itertools;
     use plonky2::field::types::Field;
     use plonky2::iop::witness::{PartialWitness, WitnessWrite};

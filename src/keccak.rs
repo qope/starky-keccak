@@ -5,7 +5,7 @@ use plonky2::{
     plonk::{circuit_builder::CircuitBuilder, plonk_common::reduce_with_powers_ext_circuit},
 };
 
-use crate::{
+use starky::{
     constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer},
     vars::{StarkEvaluationTargets, StarkEvaluationVars},
 };

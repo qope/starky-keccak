@@ -5,7 +5,7 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
+use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use super::{
     columns::{reg_a, reg_a_prime_prime_prime},
@@ -121,5 +121,3 @@ pub fn gen_keccak_pulse_positions(num_io_pairs: usize) -> Vec<usize> {
         .flat_map(|i| vec![NUM_ROUNDS * i, NUM_ROUNDS * (i + 1) - 1])
         .collect()
 }
-
-

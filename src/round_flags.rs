@@ -4,10 +4,10 @@ use plonky2::field::types::Field;
 use plonky2::hash::hash_types::RichField;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 
-use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
-use crate::keccak::columns::reg_step;
-use crate::keccak::keccak_stark_multi::NUM_ROUNDS;
-use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
+use crate::columns::reg_step;
+use crate::keccak_stark_multi::NUM_ROUNDS;
+use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
+use starky::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
 pub(crate) fn eval_round_flags<
     F: Field,

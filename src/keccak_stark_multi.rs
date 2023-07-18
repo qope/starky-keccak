@@ -7,22 +7,22 @@ use plonky2::field::polynomial::PolynomialValues;
 use plonky2::hash::hash_types::RichField;
 use plonky2::util::transpose;
 
-use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
-use crate::keccak::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
+use crate::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
+use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
-use crate::keccak::round_flags::{eval_round_flags, eval_round_flags_recursively};
-use crate::keccak::utils::{split_lo_and_hi, write_state};
-use crate::stark::Stark;
-use crate::vars::{StarkEvaluationTargets, StarkEvaluationVars};
+use crate::round_flags::{eval_round_flags, eval_round_flags_recursively};
+use crate::utils::{split_lo_and_hi, write_state};
+use starky::stark::Stark;
+use starky::vars::{StarkEvaluationTargets, StarkEvaluationVars};
 
 use super::columns::reg_a_prime_prime_prime;
-use super::keccak::{
-    eval_keccak_round, eval_keccak_round_circuit, generate_keccak_trace_row_for_round,
-};
 use super::pulse::{eval_pulse, eval_pulse_circuit, generate_pulse, get_pulse_col};
 use super::utils::{
     gen_keccak_pulse_positions, read_input, read_input_target, read_output, read_output_target,
     read_state, state_eq, state_eq_circuit,
+};
+use crate::keccak::{
+    eval_keccak_round, eval_keccak_round_circuit, generate_keccak_trace_row_for_round,
 };
 
 /// Number of rounds in a Keccak permutation.
@@ -275,14 +275,14 @@ mod tests {
     use plonky2::util::timing::TimingTree;
     use tiny_keccak::keccakf;
 
-    use crate::config::StarkConfig;
-    use crate::keccak::keccak_stark_multi::{KeccakStark, NUM_INPUTS};
-    use crate::prover::prove;
-    use crate::recursive_verifier::{
+    use crate::keccak_stark_multi::{KeccakStark, NUM_INPUTS};
+    use starky::config::StarkConfig;
+    use starky::prover::prove;
+    use starky::recursive_verifier::{
         add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
         verify_stark_proof_circuit,
     };
-    use crate::verifier::verify_stark_proof;
+    use starky::verifier::verify_stark_proof;
 
     #[test]
     fn test_keccak_multi() -> Result<()> {

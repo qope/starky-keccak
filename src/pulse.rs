@@ -1,4 +1,3 @@
-use crate::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 use itertools::Itertools;
 use plonky2::{
     field::{extension::Extendable, packed::PackedField, types::Field},
@@ -6,6 +5,7 @@ use plonky2::{
     iop::ext_target::ExtensionTarget,
     plonk::circuit_builder::CircuitBuilder,
 };
+use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 pub fn get_pulse_col(start_pulse_col: usize, i: usize) -> usize {
     start_pulse_col + 1 + 2 * i + 1
