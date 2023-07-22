@@ -50,7 +50,7 @@ pub fn keccak256(input: Vec<u32>) -> ([u32; 8], Vec<u32>) {
     let mut padded = vec![0u32; block_size * num_blocks];
     padded[0..input.len()].copy_from_slice(&input);
     padded[input.len()] = 0x01;
-    *padded.last_mut().unwrap() = 0x80 << 24;
+    *padded.last_mut().unwrap() ^= 0x80 << 24;
     let mut state = [0u32; 50];
     for i in 0..num_blocks {
         for j in 0..block_size {
@@ -96,7 +96,7 @@ pub fn keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: 
     let num_blocks = input.len() / block_size + 1;
     let mut padded = vec![zero; block_size * num_blocks];
     padded[0..input.len()].copy_from_slice(&input);
-    padded[input.len()] = one;
+    padded[input.len()] = xor_circuit(builder, one, padded[input.len()]);
     *padded.last_mut().unwrap() = c;
     let mut state = [zero; 50];
     for i in 0..num_blocks {
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_keccak256() {
         let mut rng = rand::thread_rng();
-        let input = vec![rng.gen(); 423];
+        let input = vec![rng.gen(); 33];
         let (output, _pi) = keccak256(input.clone());
         let output_expected: [u32; 8] = {
             let mut hasher = Keccak::v256();
@@ -319,16 +319,20 @@ mod tests {
         let circuit = build_keccak256_circuit();
         let mut rng = rand::thread_rng();
         let input: Vec<u32> = vec![rng.gen(); INPUT_LEN];
-        let (output, _pi) = keccak256(input.clone());
-        let input_and_output = [input.as_slice(), &output]
-            .concat()
-            .iter()
-            .map(|x| F::from_canonical_u32(*x))
-            .collect_vec();
 
         let now = Instant::now();
         let proof = generate_keccak256_proof(input.clone(), &circuit);
         println!("proof generation took {:?}", now.elapsed());
-        assert!(proof.public_inputs == input_and_output);
+
+        // assertion
+        {
+            let (output, _pi) = keccak256(input.clone());
+            let input_and_output = [input.as_slice(), &output]
+                .concat()
+                .iter()
+                .map(|x| F::from_canonical_u32(*x))
+                .collect_vec();
+            assert!(proof.public_inputs == input_and_output);
+        }
     }
 }
