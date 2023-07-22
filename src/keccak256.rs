@@ -96,8 +96,8 @@ pub fn keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: 
     let num_blocks = input.len() / block_size + 1;
     let mut padded = vec![zero; block_size * num_blocks];
     padded[0..input.len()].copy_from_slice(&input);
-    padded[input.len()] = xor_circuit(builder, one, padded[input.len()]);
-    *padded.last_mut().unwrap() = c;
+    padded[input.len()] = one;
+    *padded.last_mut().unwrap() = xor_circuit(builder, *padded.last().unwrap(), c);
     let mut state = [zero; 50];
     for i in 0..num_blocks {
         for j in 0..block_size {
