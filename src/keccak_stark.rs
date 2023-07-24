@@ -39,6 +39,13 @@ pub struct KeccakStark<F, const D: usize> {
 }
 
 impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
+    pub fn new(num_io: usize) -> Self {
+        Self {
+            num_io,
+            f: PhantomData,
+        }
+    }
+
     pub fn config(&self) -> StarkConfig {
         let num_columns = NUM_COLUMNS + 1 + 4 * self.num_io;
         let num_public_inputs = 4 * NUM_INPUTS * self.num_io;
@@ -276,24 +283,14 @@ mod tests {
 
     #[test]
     fn test_keccak_stark() -> Result<()> {
-        const NUM_IO_PAIRS: usize = 61;
+        let num_io = 256;
 
-        let inputs = (0..NUM_IO_PAIRS)
+        let inputs = (0..num_io)
             .map(|_| {
                 let r: [u64; NUM_INPUTS] = rand::random();
                 r
             })
             .collect_vec();
-
-        const D: usize = 2;
-        type C = PoseidonGoldilocksConfig;
-        type F = <C as GenericConfig<D>>::F;
-        type S = KeccakStark<F, D>;
-
-        let stark = S {
-            num_io: NUM_IO_PAIRS,
-            f: Default::default(),
-        };
 
         let outputs = inputs
             .iter()
@@ -304,6 +301,12 @@ mod tests {
             })
             .collect_vec();
 
+        const D: usize = 2;
+        type C = PoseidonGoldilocksConfig;
+        type F = <C as GenericConfig<D>>::F;
+        type S = KeccakStark<F, D>;
+
+        let stark = S::new(num_io);
         let now = Instant::now();
         let inner_config = stark.config();
         let trace = stark.generate_trace(inputs.clone(), 8);
@@ -330,8 +333,6 @@ mod tests {
         let proof = data.prove(pw)?;
         println!("Circuit proving time: {:?}", now.elapsed());
         data.verify(proof)?;
-
-        dbg!(degree_bits);
 
         Ok(())
     }

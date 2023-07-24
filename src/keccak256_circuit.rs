@@ -311,14 +311,14 @@ mod tests {
 
     #[test]
     fn test_keccak256_circuit() {
-        const INPUT_LEN: usize = 256 * 4;
+        let input_len: usize = 256 * 4;
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
 
-        let circuit = build_keccak256_circuit(INPUT_LEN);
+        let circuit = build_keccak256_circuit(input_len);
         let mut rng = rand::thread_rng();
-        let input: Vec<u32> = vec![rng.gen(); INPUT_LEN];
+        let input: Vec<u32> = vec![rng.gen(); input_len];
 
         let now = Instant::now();
         let proof = generate_keccak256_proof(input.clone(), &circuit);
