@@ -16,7 +16,7 @@ use super::{
         reg_b, reg_c, reg_c_prime, reg_step, NUM_COLUMNS,
     },
     constants::{rc_value, rc_value_bit},
-    keccak_stark_multi::NUM_ROUNDS,
+    keccak_stark::NUM_ROUNDS,
     logic::{
         andn, andn_gen, andn_gen_circuit, xor, xor3_gen, xor3_gen_circuit, xor_gen, xor_gen_circuit,
     },
@@ -118,15 +118,9 @@ pub fn generate_keccak_trace_row_for_round<F: RichField>(row: &mut [F; NUM_COLUM
     row[out_reg_hi] = F::from_canonical_u64(row[in_reg_hi].to_canonical_u64() ^ rc_hi);
 }
 
-pub fn eval_keccak_round<
-    F: Field,
-    P: PackedField<Scalar = F>,
-    const D: usize,
-    const COLUMNS: usize,
-    const PUBLIC_INPUTS: usize,
->(
+pub fn eval_keccak_round<F: Field, P: PackedField<Scalar = F>, const D: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
-    vars: StarkEvaluationVars<F, P, COLUMNS, PUBLIC_INPUTS>,
+    vars: StarkEvaluationVars<F, P>,
 ) {
     // C'[x, z] = xor(C[x, z], C[x - 1, z], C[x + 1, z - 1]).
     for x in 0..5 {
@@ -260,15 +254,10 @@ pub fn eval_keccak_round<
     }
 }
 
-pub fn eval_keccak_round_circuit<
-    F: RichField + Extendable<D>,
-    const D: usize,
-    const COLUMNS: usize,
-    const PUBLIC_INPUTS: usize,
->(
+pub fn eval_keccak_round_circuit<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
-    vars: StarkEvaluationTargets<D, COLUMNS, PUBLIC_INPUTS>,
+    vars: StarkEvaluationTargets<D>,
 ) {
     let two = builder.two();
     let two_ext = builder.two_extension();

@@ -3,9 +3,9 @@
 
 pub mod columns;
 pub mod constants;
-pub mod keccak;
-pub mod keccak256;
-pub mod keccak_stark_multi;
+pub mod keccak_constraints;
+pub mod keccak256_circuit;
+pub mod keccak_stark;
 pub mod logic;
 pub mod pulse;
 pub mod round_flags;

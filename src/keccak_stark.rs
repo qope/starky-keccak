@@ -6,6 +6,7 @@ use plonky2::field::packed::PackedField;
 use plonky2::field::polynomial::PolynomialValues;
 use plonky2::hash::hash_types::RichField;
 use plonky2::util::transpose;
+use starky::config::StarkConfig;
 
 use crate::columns::{reg_a, reg_step, NUM_COLUMNS, REG_FILTER};
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
@@ -21,7 +22,7 @@ use super::utils::{
     gen_keccak_pulse_positions, read_input, read_input_target, read_output, read_output_target,
     read_state, state_eq, state_eq_circuit,
 };
-use crate::keccak::{
+use crate::keccak_constraints::{
     eval_keccak_round, eval_keccak_round_circuit, generate_keccak_trace_row_for_round,
 };
 
@@ -32,23 +33,25 @@ pub(crate) const NUM_ROUNDS: usize = 24;
 pub(crate) const NUM_INPUTS: usize = 25;
 
 #[derive(Copy, Clone, Default)]
-pub struct KeccakStark<F, const D: usize, const NUM_IO_PAIRS: usize> {
+pub struct KeccakStark<F, const D: usize> {
+    pub num_io: usize,
     pub(crate) f: PhantomData<F>,
 }
 
-impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
-    KeccakStark<F, D, NUM_IO_PAIRS>
-{
-    /// Generate the rows of the trace. Note that this does not generate the permuted columns used
-    /// in our lookup arguments, as those are computed after transposing to column-wise form.
+impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
+    pub fn config(&self) -> StarkConfig {
+        let num_columns = NUM_COLUMNS + 1 + 4 * self.num_io;
+        let num_public_inputs = 4 * NUM_INPUTS * self.num_io;
+        StarkConfig::standard_fast_config(num_columns, num_public_inputs)
+    }
+
     fn generate_trace_rows(
         &self,
-        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
+        inputs: Vec<[u64; NUM_INPUTS]>,
         min_rows: usize,
     ) -> Vec<[F; NUM_COLUMNS]> {
-        let num_rows = (NUM_IO_PAIRS * NUM_ROUNDS)
-            .max(min_rows)
-            .next_power_of_two();
+        assert!(inputs.len() == self.num_io);
+        let num_rows = (self.num_io * NUM_ROUNDS).max(min_rows).next_power_of_two();
         let mut rows = Vec::with_capacity(num_rows);
         for input in inputs.iter() {
             let mut rows_for_perm = self.generate_trace_rows_for_perm(*input);
@@ -56,7 +59,6 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
             rows_for_perm[NUM_ROUNDS - 1][REG_FILTER] = F::ONE;
             rows.extend(rows_for_perm);
         }
-
         let pad_rows = self.generate_trace_rows_for_perm([0; NUM_INPUTS]);
         while rows.len() < num_rows {
             rows.extend(&pad_rows);
@@ -67,7 +69,6 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
 
     fn generate_trace_rows_for_perm(&self, input: [u64; NUM_INPUTS]) -> Vec<[F; NUM_COLUMNS]> {
         let mut rows = vec![[F::ZERO; NUM_COLUMNS]; NUM_ROUNDS];
-
         // Populate the round input for the first round.
         for x in 0..5 {
             for y in 0..5 {
@@ -84,7 +85,6 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
             self.copy_output_to_input(rows[round - 1], &mut rows[round]);
             generate_keccak_trace_row_for_round(&mut rows[round], round);
         }
-
         rows
     }
 
@@ -103,12 +103,13 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
 
     pub fn generate_trace(
         &self,
-        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
+        inputs: Vec<[u64; NUM_INPUTS]>,
         min_rows: usize,
     ) -> Vec<PolynomialValues<F>> {
+        assert!(inputs.len() == self.num_io);
         let rows = self.generate_trace_rows(inputs, min_rows);
         let mut trace_cols = transpose(&rows.iter().map(|v| v.to_vec()).collect_vec());
-        generate_pulse(&mut trace_cols, gen_keccak_pulse_positions(NUM_IO_PAIRS));
+        generate_pulse(&mut trace_cols, gen_keccak_pulse_positions(self.num_io));
         let trace = trace_cols
             .into_iter()
             .map(|column| PolynomialValues::new(column))
@@ -118,10 +119,12 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
 
     pub fn generate_public_inputs(
         &self,
-        inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
-        outputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS],
-    ) -> [F; 2 * 50 * NUM_IO_PAIRS] {
-        let mut pi = [F::ZERO; 2 * 50 * NUM_IO_PAIRS];
+        inputs: Vec<[u64; NUM_INPUTS]>,
+        outputs: Vec<[u64; NUM_INPUTS]>,
+    ) -> Vec<F> {
+        assert!(inputs.len() == self.num_io);
+        assert!(outputs.len() == self.num_io);
+        let mut pi = vec![F::ZERO; 2 * 50 * self.num_io];
         let mut cur_col = 0;
         inputs
             .iter()
@@ -133,20 +136,15 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize>
                 write_state(&mut pi, &output, &mut cur_col);
             })
             .collect_vec();
-        assert!(cur_col == 2 * 50 * NUM_IO_PAIRS);
+        assert!(cur_col == 2 * 50 * self.num_io);
         pi
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> Stark<F, D>
-    for KeccakStark<F, D, NUM_IO_PAIRS>
-{
-    const COLUMNS: usize = NUM_COLUMNS + 1 + 4 * NUM_IO_PAIRS;
-    const PUBLIC_INPUTS: usize = 4 * NUM_INPUTS * NUM_IO_PAIRS;
-
+impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F, D> {
     fn eval_packed_generic<FE, P, const D2: usize>(
         &self,
-        vars: StarkEvaluationVars<FE, P, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>,
+        vars: StarkEvaluationVars<FE, P>,
         yield_constr: &mut ConstraintConsumer<P>,
     ) where
         FE: FieldExtension<D2, BaseField = F>,
@@ -169,40 +167,37 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> St
             vars.local_values,
             vars.next_values,
             NUM_COLUMNS,
-            gen_keccak_pulse_positions(NUM_IO_PAIRS),
+            gen_keccak_pulse_positions(self.num_io),
         );
 
         let start_pulse_col = NUM_COLUMNS;
 
         let mut input_flags = vec![];
         let mut output_flags = vec![];
-        for i in 0..NUM_IO_PAIRS {
+        for i in 0..self.num_io {
             input_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i)]);
             output_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i + 1)]);
         }
 
         // public inputs and outputs
-        let pi: [P; Self::PUBLIC_INPUTS] = vars.public_inputs.map(|x| x.into());
+        let pi: &[P] = &vars.public_inputs.iter().map(|&x| x.into()).collect_vec();
         let input = read_input(vars.local_values);
         let output = read_output(vars.local_values);
         let mut cur_col = 0;
-        (0..NUM_IO_PAIRS).for_each(|i| {
+        (0..self.num_io).for_each(|i| {
             let input_pi = read_state(&pi, &mut cur_col);
             let output_pi = read_state(&pi, &mut cur_col);
             state_eq(yield_constr, input_flags[i], input, input_pi);
             state_eq(yield_constr, output_flags[i], output, output_pi);
         });
 
-        eval_keccak_round::<FE, P, D, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>(
-            yield_constr,
-            vars,
-        );
+        eval_keccak_round::<FE, P, D>(yield_constr, vars);
     }
 
     fn eval_ext_circuit(
         &self,
         builder: &mut plonky2::plonk::circuit_builder::CircuitBuilder<F, D>,
-        vars: StarkEvaluationTargets<D, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>,
+        vars: StarkEvaluationTargets<D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
     ) {
         let one_ext = builder.one_extension();
@@ -219,7 +214,7 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> St
         yield_constr.constraint(builder, constraint);
 
         // eval pulse
-        let pulse_positions = gen_keccak_pulse_positions(NUM_IO_PAIRS);
+        let pulse_positions = gen_keccak_pulse_positions(self.num_io);
         eval_pulse_circuit(
             builder,
             yield_constr,
@@ -233,7 +228,7 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> St
 
         let mut input_flags = vec![];
         let mut output_flags = vec![];
-        for i in 0..NUM_IO_PAIRS {
+        for i in 0..self.num_io {
             input_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i)]);
             output_flags.push(vars.local_values[get_pulse_col(start_pulse_col, 2 * i + 1)]);
         }
@@ -243,18 +238,14 @@ impl<F: RichField + Extendable<D>, const D: usize, const NUM_IO_PAIRS: usize> St
         let input = read_input_target(builder, vars.local_values);
         let output = read_output_target(builder, vars.local_values);
         let mut cur_col = 0;
-        for i in 0..NUM_IO_PAIRS {
+        for i in 0..self.num_io {
             let input_pi = read_state(pi, &mut cur_col);
             let output_pi = read_state(pi, &mut cur_col);
             state_eq_circuit(builder, yield_constr, input_flags[i], input, input_pi);
             state_eq_circuit(builder, yield_constr, output_flags[i], output, output_pi);
         }
 
-        eval_keccak_round_circuit::<F, D, { Self::COLUMNS }, { Self::PUBLIC_INPUTS }>(
-            builder,
-            yield_constr,
-            vars,
-        );
+        eval_keccak_round_circuit::<F, D>(builder, yield_constr, vars);
     }
 
     fn constraint_degree(&self) -> usize {
@@ -275,8 +266,7 @@ mod tests {
     use plonky2::util::timing::TimingTree;
     use tiny_keccak::keccakf;
 
-    use crate::keccak_stark_multi::{KeccakStark, NUM_INPUTS};
-    use starky::config::StarkConfig;
+    use crate::keccak_stark::{KeccakStark, NUM_INPUTS};
     use starky::prover::prove;
     use starky::recursive_verifier::{
         add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
@@ -285,36 +275,38 @@ mod tests {
     use starky::verifier::verify_stark_proof;
 
     #[test]
-    fn test_keccak_multi() -> Result<()> {
+    fn test_keccak_stark() -> Result<()> {
         const NUM_IO_PAIRS: usize = 61;
 
-        let inputs: [[u64; NUM_INPUTS]; NUM_IO_PAIRS] = (0..NUM_IO_PAIRS)
+        let inputs = (0..NUM_IO_PAIRS)
             .map(|_| {
                 let r: [u64; NUM_INPUTS] = rand::random();
                 r
             })
-            .collect_vec()
-            .try_into()
-            .unwrap();
+            .collect_vec();
 
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
-        type S = KeccakStark<F, D, { NUM_IO_PAIRS }>;
+        type S = KeccakStark<F, D>;
 
         let stark = S {
+            num_io: NUM_IO_PAIRS,
             f: Default::default(),
         };
 
-        let outputs = inputs.map(|input| {
-            let mut state = input;
-            keccakf(&mut state);
-            state
-        });
+        let outputs = inputs
+            .iter()
+            .map(|&input| {
+                let mut state = input;
+                keccakf(&mut state);
+                state
+            })
+            .collect_vec();
 
         let now = Instant::now();
-        let inner_config = StarkConfig::standard_fast_config();
-        let trace = stark.generate_trace(inputs, 8);
+        let inner_config = stark.config();
+        let trace = stark.generate_trace(inputs.clone(), 8);
         let public_inputs = stark.generate_public_inputs(inputs, outputs);
         let inner_proof = prove::<F, C, S, D>(
             stark,

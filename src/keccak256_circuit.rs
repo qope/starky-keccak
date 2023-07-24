@@ -1,4 +1,4 @@
-use crate::keccak_stark_multi::{KeccakStark, NUM_ROUNDS};
+use crate::keccak_stark::{KeccakStark, NUM_ROUNDS};
 use itertools::Itertools;
 use plonky2::{
     field::extension::Extendable,
@@ -17,7 +17,6 @@ use plonky2::{
     util::timing::TimingTree,
 };
 use starky::{
-    config::StarkConfig,
     proof::StarkProofWithPublicInputsTarget,
     prover::prove,
     recursive_verifier::{
@@ -112,7 +111,6 @@ pub fn keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: 
     (state[0..8].try_into().unwrap(), pi)
 }
 
-const INPUT_LEN: usize = 256 * 8; // todo: make this a const generic
 const D: usize = 2;
 type C = PoseidonGoldilocksConfig;
 type F = <C as GenericConfig<D>>::F;
@@ -124,22 +122,23 @@ pub struct Keccak256Circuit {
     pub output_t: [Target; 8],
 }
 
-pub fn build_keccak256_circuit() -> Keccak256Circuit {
-    const BLOCK_SIZE: usize = 136 / 4;
-    const NUM_PERMS: usize = INPUT_LEN / BLOCK_SIZE + 1;
-    let degree_bits = (NUM_ROUNDS * NUM_PERMS)
+pub fn build_keccak256_circuit(input_len: usize) -> Keccak256Circuit {
+    let block_size = 136 / 4;
+    let num_perms = input_len / block_size + 1;
+    let degree_bits = (NUM_ROUNDS * num_perms)
         .next_power_of_two()
         .trailing_zeros() as usize;
     type C = PoseidonGoldilocksConfig;
     type F = <C as GenericConfig<D>>::F;
-    type S = KeccakStark<F, D, { NUM_PERMS }>;
+    type S = KeccakStark<F, D>;
     let stark = S {
+        num_io: num_perms,
         f: Default::default(),
     };
-    let inner_config = StarkConfig::standard_fast_config();
+    let inner_config = stark.config();
     let config = CircuitConfig::standard_recursion_config();
     let mut builder = CircuitBuilder::<F, D>::new(config);
-    let input_t = builder.add_virtual_targets(INPUT_LEN);
+    let input_t = builder.add_virtual_targets(input_len);
     let (output_t, pi_t) = keccak256_circuit_with_statements(&mut builder, input_t.clone());
     let stark_proof_t =
         add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
@@ -166,13 +165,12 @@ pub fn generate_keccak256_proof(
     input: Vec<u32>,
     circuit: &Keccak256Circuit,
 ) -> ProofWithPublicInputs<F, C, D> {
-    const BLOCK_SIZE: usize = 136 / 4;
-    const NUM_PERMS: usize = INPUT_LEN / BLOCK_SIZE + 1;
-    assert!(input.len() == INPUT_LEN);
+    let block_size = 136 / 4;
+    let num_perms = input.len() / block_size + 1;
 
     let (output, pi) = keccak256(input.clone());
     let mut inputs = vec![];
-    for i in 0..NUM_PERMS {
+    for i in 0..num_perms {
         let input = pi[i * 100..i * 100 + 50].to_vec();
         let input = input
             .chunks(2)
@@ -181,11 +179,12 @@ pub fn generate_keccak256_proof(
         inputs.push(input.try_into().unwrap());
     }
 
-    type S = KeccakStark<F, D, { NUM_PERMS }>;
-    let inner_config = StarkConfig::standard_fast_config();
+    type S = KeccakStark<F, D>;
     let stark = S {
+        num_io: num_perms,
         f: Default::default(),
     };
+    let inner_config = stark.config();
     let trace = stark.generate_trace(inputs.try_into().unwrap(), 8);
     let pi = pi.iter().map(|x| F::from_canonical_u32(*x)).collect_vec();
     let inner_proof = prove::<F, C, S, D>(
@@ -218,8 +217,8 @@ pub fn generate_keccak256_proof(
 mod tests {
     use std::time::Instant;
 
-    use super::{build_keccak256_circuit, generate_keccak256_proof, keccak256, INPUT_LEN};
-    use crate::keccak256::{keccak256_circuit_with_statements, xor_circuit};
+    use super::{build_keccak256_circuit, generate_keccak256_proof, keccak256};
+    use crate::keccak256_circuit::{keccak256_circuit_with_statements, xor_circuit};
     use itertools::Itertools;
     use plonky2::field::types::Field;
     use plonky2::iop::witness::{PartialWitness, WitnessWrite};
@@ -312,11 +311,12 @@ mod tests {
 
     #[test]
     fn test_keccak256_circuit() {
+        const INPUT_LEN: usize = 256 * 4;
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
 
-        let circuit = build_keccak256_circuit();
+        let circuit = build_keccak256_circuit(INPUT_LEN);
         let mut rng = rand::thread_rng();
         let input: Vec<u32> = vec![rng.gen(); INPUT_LEN];
 

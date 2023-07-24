@@ -9,7 +9,7 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 
 use super::{
     columns::{reg_a, reg_a_prime_prime_prime},
-    keccak_stark_multi::NUM_ROUNDS,
+    keccak_stark::NUM_ROUNDS,
 };
 
 pub fn split_lo_and_hi(input: [u64; 25]) -> [u32; 50] {
