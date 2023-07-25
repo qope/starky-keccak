@@ -1,5 +1,5 @@
 [package]
-name = "starky-bn254"
+name = "starky-keccak"
 version = "0.1.1"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
