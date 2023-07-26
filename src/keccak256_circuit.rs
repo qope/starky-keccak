@@ -64,6 +64,17 @@ pub fn keccak256(input: Vec<u32>) -> ([u32; 8], Vec<u32>) {
     (state[0..8].try_into().unwrap(), pi)
 }
 
+pub fn solidity_keccak256(input: Vec<u32>) -> ([u32; 8], Vec<u32>) {
+    let input = input
+        .iter()
+        .map(|v| u32::from_le_bytes(v.to_be_bytes()))
+        .collect::<Vec<_>>();
+    let (output, pi) = keccak256(input);
+    let output = output.map(|v| u32::from_be_bytes(v.to_le_bytes()));
+
+    (output, pi)
+}
+
 pub fn xor_circuit<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     x: Target,
@@ -109,6 +120,27 @@ pub fn keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: 
         state = output;
     }
     (state[0..8].try_into().unwrap(), pi)
+}
+
+pub fn solidity_keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    input: Vec<Target>,
+) -> ([Target; 8], Vec<Target>) {
+    let input = input
+        .iter()
+        .map(|v| {
+            let w = builder.split_le(*v, 32);
+            builder.le_sum(w.chunks(8).rev().flatten())
+        })
+        .collect::<Vec<_>>();
+    let (output, pi) = keccak256_circuit_with_statements(builder, input);
+    let output = output
+        .map(|v| {
+            let w = builder.split_le(v, 32);
+            builder.le_sum(w.chunks(8).rev().flatten())
+        });
+
+    (output, pi)
 }
 
 const D: usize = 2;
