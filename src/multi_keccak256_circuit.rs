@@ -26,7 +26,7 @@ use starky::{
 };
 
 use crate::{
-    keccak256_circuit::{keccak256, keccak256_circuit_with_statements},
+    keccak256_circuit::{keccak256, keccak256_circuit_with_statements, solidity_keccak256, solidity_keccak256_circuit_with_statements},
     keccak_stark::{KeccakStark, NUM_INPUTS, NUM_ROUNDS},
 };
 
@@ -41,6 +41,17 @@ pub fn multi_keccak256(inputs: Vec<Vec<u32>>) -> (Vec<[u32; 8]>, Vec<u32>) {
     (outputs, pi)
 }
 
+pub fn multi_solidity_keccak256(inputs: Vec<Vec<u32>>) -> (Vec<[u32; 8]>, Vec<u32>) {
+    let mut outputs = vec![];
+    let mut pi = vec![];
+    for input in inputs {
+        let (output, input_pi) = solidity_keccak256(input);
+        outputs.push(output);
+        pi.extend(input_pi);
+    }
+    (outputs, pi)
+}
+
 pub fn multi_keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     inputs: Vec<Vec<Target>>,
@@ -49,6 +60,20 @@ pub fn multi_keccak256_circuit_with_statements<F: RichField + Extendable<D>, con
     let mut outputs = vec![];
     for input in inputs {
         let (output, pi_t) = keccak256_circuit_with_statements(builder, input);
+        outputs.push(output);
+        pi.extend(pi_t);
+    }
+    (outputs, pi)
+}
+
+pub fn multi_solidity_keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    inputs: Vec<Vec<Target>>,
+) -> (Vec<[Target; 8]>, Vec<Target>) {
+    let mut pi: Vec<Target> = vec![];
+    let mut outputs = vec![];
+    for input in inputs {
+        let (output, pi_t) = solidity_keccak256_circuit_with_statements(builder, input);
         outputs.push(output);
         pi.extend(pi_t);
     }
