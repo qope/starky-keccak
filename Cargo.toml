@@ -10,6 +10,8 @@ default = ["parallel", "std", "timing"]
 parallel = ["plonky2/parallel", "plonky2_maybe_rayon/parallel"]
 std = ["anyhow/std", "plonky2/std"]
 timing = ["plonky2/timing"]
+not-constrain-keccak = []
+new-plonky2 = []
 
 [dependencies]
 anyhow = { version = "1.0.40", default-features = false }
