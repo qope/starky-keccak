@@ -155,41 +155,71 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
         C::Hasher: AlgebraicHasher<F>,
     {
         if !self.keccak_io.is_empty() {
-            // TODO: If the input is too large, should it be divided into several starky circuits.
-            let mut inputs = vec![];
-            let mut outputs = vec![];
-            for (input, output) in self.keccak_io.into_iter() {
-                let input = input
-                    .iter()
-                    .map(|v| {
-                        let w = self.builder.split_le(*v, 32);
-                        self.builder.le_sum(w.chunks(8).rev().flatten())
-                    })
-                    .collect::<Vec<_>>();
+            let num_perms: usize = self
+                .keccak_io
+                .iter()
+                .map(|(input, _output)| input.len() / BLOCK_SIZE + 1)
+                .sum();
 
-                inputs.push(input);
-                outputs.push(output);
-            }
-            let generator =
-                Keccak256StarkyProofGenerator::<F, C, D>::new(&mut self.builder, inputs);
+            // NOTICE: If `num_perms` is less than 3, it is more efficient to prove the case without using a starky.
+            if num_perms < 3 {
+                use plonky2_keccak256::keccak::keccak256_circuit;
 
-            for (xs, ys) in outputs.iter().zip(generator.outputs.iter()) {
-                for (x, y) in xs.iter().zip(ys.iter()) {
-                    let y_bits = self.builder.split_le(*y, 32);
-                    let y = self.builder.le_sum(y_bits.chunks(8).rev().flatten());
-                    self.builder.connect(*x, y);
+                for (input, output) in self.keccak_io.iter() {
+                    let input_le = input
+                        .iter()
+                        .flat_map(|v| {
+                            let w = self.builder.split_le(*v, 32);
+                            w.chunks(8).rev().flatten().cloned().collect::<Vec<_>>()
+                        })
+                        .collect(); // TODO: Is this secure?
+                    let output_le = keccak256_circuit::<F, D>(input_le, &mut self.builder);
+
+                    let actual_output = output_le
+                        .chunks(32)
+                        .map(|v| self.builder.le_sum(v.chunks(8).rev().flatten()))
+                        .collect::<Vec<_>>();
+
+                    for (x, y) in actual_output.iter().zip(output.iter()) {
+                        self.builder.connect(*x, *y);
+                    }
                 }
+            } else {
+                // TODO: If the input is too large, should it be divided into several starky circuits.
+                let mut inputs = vec![];
+                let mut outputs = vec![];
+                for (input, output) in self.keccak_io.into_iter() {
+                    let input = input
+                        .iter()
+                        .map(|v| {
+                            let w = self.builder.split_le(*v, 32);
+                            self.builder.le_sum(w.chunks(8).rev().flatten())
+                        })
+                        .collect::<Vec<_>>();
+
+                    inputs.push(input);
+                    outputs.push(output);
+                }
+                let generator =
+                    Keccak256StarkyProofGenerator::<F, C, D>::new(&mut self.builder, inputs);
+
+                for (xs, ys) in outputs.iter().zip(generator.outputs.iter()) {
+                    for (x, y) in xs.iter().zip(ys.iter()) {
+                        let y_bits = self.builder.split_le(*y, 32);
+                        let y = self.builder.le_sum(y_bits.chunks(8).rev().flatten());
+                        self.builder.connect(*x, y);
+                    }
+                }
+
+                #[cfg(not(feature = "new-plonky2"))]
+                self.builder
+                    .add_generators(vec![Box::new(generator.adapter())]);
+
+                #[cfg(feature = "new-plonky2")]
+                self.builder.add_generators(vec![
+                    plonky2::iop::generator::WitnessGeneratorRef::new(generator.adapter()),
+                ]);
             }
-
-            #[cfg(not(feature = "new-plonky2"))]
-            self.builder
-                .add_generators(vec![Box::new(generator.adapter())]);
-
-            #[cfg(feature = "new-plonky2")]
-            self.builder
-                .add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
-                    generator.adapter(),
-                )]);
         }
 
         dbg!(self.builder.num_gates());
