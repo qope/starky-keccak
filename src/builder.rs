@@ -22,13 +22,12 @@ use starky::{
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::{
-    keccak_stark::KeccakStark,
+    keccak_stark::{KeccakStark, NUM_ROUNDS},
     multi_keccak256_circuit::{multi_keccak256, multi_keccak256_circuit_with_statements},
     starky_types::{set_stark_proof_with_pis_target, WrappedStarkProofWithPublicInputsTarget},
 };
 
-pub const NUM_ROUNDS: usize = 24;
-pub const BLOCK_SIZE: usize = 136 / 4;
+pub(crate) const BLOCK_SIZE: usize = 136 / 4;
 
 type U32Target = Target;
 
