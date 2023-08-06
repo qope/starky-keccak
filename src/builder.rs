@@ -16,7 +16,7 @@ use plonky2::{
 use starky::{
     config::StarkConfig,
     proof::StarkProofWithPublicInputsTarget,
-    recursive_verifier::{add_virtual_stark_proof_with_pis, verify_stark_proof_circuit},
+    recursive_verifier::{add_virtual_stark_proof_with_pis, verify_stark_proof_circuit, set_stark_proof_with_pis_target},
     verifier::verify_stark_proof,
 };
 use tiny_keccak::{Hasher, Keccak};
@@ -24,7 +24,6 @@ use tiny_keccak::{Hasher, Keccak};
 use crate::{
     keccak_stark::{KeccakStark, NUM_ROUNDS},
     multi_keccak256_circuit::{multi_keccak256, multi_keccak256_circuit_with_statements},
-    starky_types::{set_stark_proof_with_pis_target, WrappedStarkProofWithPublicInputsTarget},
 };
 
 pub(crate) const BLOCK_SIZE: usize = 136 / 4;
@@ -292,10 +291,7 @@ where
             .field("inputs", &self.inputs)
             .field("outputs", &self.outputs)
             .field("starky_pi", &self.starky_pi)
-            .field(
-                "starky_proof",
-                &WrappedStarkProofWithPublicInputsTarget(&self.starky_proof),
-            )
+            .field("starky_proof", &self.starky_proof)
             .finish()
     }
 }

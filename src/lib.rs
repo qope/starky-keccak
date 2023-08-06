@@ -12,4 +12,3 @@ pub mod multi_keccak256_circuit;
 pub mod pulse;
 pub mod round_flags;
 pub mod utils;
-pub mod starky_types;

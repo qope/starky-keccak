@@ -20,7 +20,7 @@ log = { version = "0.4.14", default-features = false }
 plonky2_maybe_rayon = "0.1.0"
 plonky2 ="0.1.2"
 plonky2-keccak256 = { git = "https://github.com/qope/plonky2-keccak256", rev = "c3e2af1" }
-starky = {git="https://github.com/qope/plonky2.git", rev="eb15b591"}
+starky = {git="https://github.com/qope/plonky2.git", rev="8211f5"}
 static_assertions = "1.1.0"
 num = "0.4.0"
 num-bigint = "0.4.3"
