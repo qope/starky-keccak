@@ -3,7 +3,7 @@ use plonky2::{
     hash::hash_types::RichField,
     iop::{
         generator::{GeneratedValues, SimpleGenerator},
-        target::{BoolTarget, Target},
+        target::Target,
         witness::{PartitionWitness, Witness, WitnessWrite},
     },
     plonk::{
@@ -16,12 +16,15 @@ use plonky2::{
 use starky::{
     config::StarkConfig,
     proof::StarkProofWithPublicInputsTarget,
-    recursive_verifier::{add_virtual_stark_proof_with_pis, verify_stark_proof_circuit, set_stark_proof_with_pis_target},
+    recursive_verifier::{
+        add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
+        verify_stark_proof_circuit,
+    },
     verifier::verify_stark_proof,
 };
-use tiny_keccak::{Hasher, Keccak};
 
 use crate::{
+    keccak256_circuit::solidity_keccak256,
     keccak_stark::{KeccakStark, NUM_ROUNDS},
     multi_keccak256_circuit::{multi_keccak256, multi_keccak256_circuit_with_statements},
 };
@@ -30,32 +33,10 @@ pub(crate) const BLOCK_SIZE: usize = 136 / 4;
 
 type U32Target = Target;
 
-pub(crate) fn u8_to_le_bits(num: u8) -> Vec<bool> {
-    let mut result = Vec::with_capacity(8);
-    let mut n = num;
-    for _ in 0..8 {
-        result.push(n & 1 == 1);
-        n >>= 1;
-    }
-
-    result
-}
-
-pub(crate) fn le_bits_to_u8(input: &[bool]) -> u8 {
-    let mut result = 0;
-    for (i, b) in input.iter().enumerate() {
-        if *b {
-            result |= 1 << i;
-        }
-    }
-
-    result
-}
-
 #[derive(Clone, Debug)]
 pub struct Keccak256MockGenerator {
-    pub input: Vec<BoolTarget>,
-    pub output: [BoolTarget; 256],
+    pub input: Vec<U32Target>,
+    pub output: [U32Target; 8],
 }
 
 impl<F: RichField> SimpleGenerator<F> for Keccak256MockGenerator {
@@ -65,32 +46,22 @@ impl<F: RichField> SimpleGenerator<F> for Keccak256MockGenerator {
     }
 
     fn dependencies(&self) -> Vec<Target> {
-        self.input.iter().map(|t| t.target).collect()
+        self.input.to_vec()
     }
 
     // NOTICE: not generate constraints for the hash
-    fn run_once(&self, witness: &PartitionWitness<F>, out_buffer: &mut GeneratedValues<F>) {
-        let get_bool =
-            |bool_target: BoolTarget| -> bool { witness.get_target(bool_target.target) == F::ONE };
-
-        assert_eq!(self.input.len() % 8, 0);
-        // assert_eq!(self.output.len(), 256);
-        let input_le = self.input.iter().map(|v| get_bool(*v)).collect::<Vec<_>>();
-        let input = input_le.chunks(8).map(le_bits_to_u8).collect::<Vec<_>>();
-
-        let mut output = [0u8; 32];
-        let mut hasher = Keccak::v256();
-        hasher.update(&input);
-        hasher.finalize(&mut output);
-
-        let output_le = output
-            .into_iter()
-            .flat_map(u8_to_le_bits)
+    fn run_once(&self, pw: &PartitionWitness<F>, out_buffer: &mut GeneratedValues<F>) {
+        let input = self
+            .input
+            .iter()
+            .map(|v| pw.get_target(*v).to_canonical_u64() as u32)
             .collect::<Vec<_>>();
 
-        assert_eq!(self.output.len(), output_le.len());
-        for (target, witness) in self.output.iter().zip(output_le.iter()) {
-            out_buffer.set_bool_target(*target, *witness);
+        let output = solidity_keccak256(input).0;
+
+        assert_eq!(self.output.len(), output.len());
+        for (target, witness) in self.output.iter().zip(output) {
+            out_buffer.set_target(*target, F::from_canonical_u32(witness));
         }
     }
 
@@ -141,17 +112,33 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
     pub fn keccak256(&mut self, input: Vec<U32Target>) -> [U32Target; 8] {
         // NOTICE: The limbs of `output` are secure because these are constrained as 32-bit integers by the starky circuit.
         let output: [U32Target; 8] = [(); 8].map(|_| self.add_virtual_target());
-        self.keccak_io.push((input, output));
+        self.keccak_io.push((input.clone(), output));
+        let generator = Keccak256MockGenerator { input, output };
+
+        #[cfg(not(feature = "new-plonky2"))]
+        self.builder
+            .add_generators(vec![Box::new(generator.adapter())]);
+
+        #[cfg(feature = "new-plonky2")]
+        self.builder
+            .add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
+                generator.adapter(),
+            )]);
 
         output
     }
 
-    #[cfg(not(feature = "not-constrain-keccak"))]
-    pub fn build<C>(mut self) -> CircuitData<F, C, D>
+    pub fn build<C>(self) -> CircuitData<F, C, D>
     where
         C: GenericConfig<D, F = F> + 'static,
         C::Hasher: AlgebraicHasher<F>,
     {
+        #[cfg(feature = "not-constrain-keccak")]
+        let builder = self.builder;
+        #[cfg(not(feature = "not-constrain-keccak"))]
+        let mut builder = self.builder;
+
+        #[cfg(not(feature = "not-constrain-keccak"))]
         if !self.keccak_io.is_empty() {
             let num_perms: usize = self
                 .keccak_io
@@ -167,19 +154,19 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
                     let input_le = input
                         .iter()
                         .flat_map(|v| {
-                            let w = self.builder.split_le(*v, 32);
+                            let w = builder.split_le(*v, 32);
                             w.chunks(8).rev().flatten().cloned().collect::<Vec<_>>()
                         })
                         .collect(); // TODO: Is this secure?
-                    let output_le = keccak256_circuit::<F, D>(input_le, &mut self.builder);
+                    let output_le = keccak256_circuit::<F, D>(input_le, &mut builder);
 
                     let actual_output = output_le
                         .chunks(32)
-                        .map(|v| self.builder.le_sum(v.chunks(8).rev().flatten()))
+                        .map(|v| builder.le_sum(v.chunks(8).rev().flatten()))
                         .collect::<Vec<_>>();
 
                     for (x, y) in actual_output.iter().zip(output.iter()) {
-                        self.builder.connect(*x, *y);
+                        builder.connect(*x, *y);
                     }
                 }
             } else {
@@ -190,81 +177,35 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
                     let input = input
                         .iter()
                         .map(|v| {
-                            let w = self.builder.split_le(*v, 32);
-                            self.builder.le_sum(w.chunks(8).rev().flatten())
+                            let w = builder.split_le(*v, 32);
+                            builder.le_sum(w.chunks(8).rev().flatten())
                         })
                         .collect::<Vec<_>>();
 
                     inputs.push(input);
                     outputs.push(output);
                 }
-                let generator =
-                    Keccak256StarkyProofGenerator::<F, C, D>::new(&mut self.builder, inputs);
+                let generator = Keccak256StarkyProofGenerator::<F, C, D>::new(&mut builder, inputs);
 
                 for (xs, ys) in outputs.iter().zip(generator.outputs.iter()) {
                     for (x, y) in xs.iter().zip(ys.iter()) {
-                        let y_bits = self.builder.split_le(*y, 32);
-                        let y = self.builder.le_sum(y_bits.chunks(8).rev().flatten());
-                        self.builder.connect(*x, y);
+                        let y_bits = builder.split_le(*y, 32);
+                        let y = builder.le_sum(y_bits.chunks(8).rev().flatten());
+                        builder.connect(*x, y);
                     }
                 }
 
                 #[cfg(not(feature = "new-plonky2"))]
-                self.builder
-                    .add_generators(vec![Box::new(generator.adapter())]);
+                builder.add_generators(vec![Box::new(generator.adapter())]);
 
                 #[cfg(feature = "new-plonky2")]
-                self.builder.add_generators(vec![
-                    plonky2::iop::generator::WitnessGeneratorRef::new(generator.adapter()),
-                ]);
-            }
-        }
-
-        dbg!(self.builder.num_gates());
-        self.builder.build::<C>()
-    }
-
-    #[cfg(feature = "not-constrain-keccak")]
-    pub fn build<C>(mut self) -> CircuitData<F, C, D>
-    where
-        C: GenericConfig<D, F = F>,
-    {
-        for (input, output) in self.keccak_io.iter() {
-            let input_le = input
-                .iter()
-                .flat_map(|v| {
-                    let w = self.builder.split_le(*v, 32);
-                    w.chunks(8).rev().flatten().cloned().collect::<Vec<_>>()
-                })
-                .collect();
-            let output_le = [(); 256].map(|_| self.builder.add_virtual_bool_target_safe());
-            let generator = Keccak256MockGenerator {
-                input: input_le,
-                output: output_le,
-            };
-
-            #[cfg(not(feature = "new-plonky2"))]
-            self.builder
-                .add_generators(vec![Box::new(generator.adapter())]);
-
-            #[cfg(feature = "new-plonky2")]
-            self.builder
-                .add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
+                builder.add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
                     generator.adapter(),
                 )]);
-
-            let actual_output = output_le
-                .chunks(32)
-                .map(|v| self.builder.le_sum(v.chunks(8).rev().flatten()))
-                .collect::<Vec<_>>();
-
-            for (x, y) in actual_output.iter().zip(output.iter()) {
-                self.builder.connect(*x, *y);
             }
         }
 
-        dbg!(self.builder.num_gates());
-        self.builder.build::<C>()
+        builder.build::<C>()
     }
 }
 
