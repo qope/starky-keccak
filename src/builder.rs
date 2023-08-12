@@ -40,7 +40,6 @@ pub struct Keccak256MockGenerator {
 }
 
 impl<F: RichField> SimpleGenerator<F> for Keccak256MockGenerator {
-    #[cfg(feature = "new-plonky2")]
     fn id(&self) -> String {
         "Keccak256MockGenerator".to_string()
     }
@@ -65,12 +64,10 @@ impl<F: RichField> SimpleGenerator<F> for Keccak256MockGenerator {
         }
     }
 
-    #[cfg(feature = "new-plonky2")]
     fn serialize(&self, _dst: &mut Vec<u8>) -> plonky2::util::serialization::IoResult<()> {
         unimplemented!()
     }
 
-    #[cfg(feature = "new-plonky2")]
     fn deserialize(
         _src: &mut plonky2::util::serialization::Buffer,
     ) -> plonky2::util::serialization::IoResult<Self> {
@@ -115,11 +112,7 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
         self.keccak_io.push((input.clone(), output));
         let generator = Keccak256MockGenerator { input, output };
 
-        #[cfg(not(feature = "new-plonky2"))]
-        self.builder
-            .add_generators(vec![Box::new(generator.adapter())]);
-
-        #[cfg(feature = "new-plonky2")]
+  
         self.builder
             .add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
                 generator.adapter(),
@@ -195,10 +188,7 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
                     }
                 }
 
-                #[cfg(not(feature = "new-plonky2"))]
-                builder.add_generators(vec![Box::new(generator.adapter())]);
 
-                #[cfg(feature = "new-plonky2")]
                 builder.add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
                     generator.adapter(),
                 )]);
@@ -283,7 +273,7 @@ where
     C: GenericConfig<D, F = F> + 'static,
     C::Hasher: AlgebraicHasher<F>,
 {
-    #[cfg(feature = "new-plonky2")]
+
     fn id(&self) -> String {
         format!("Keccak256StarkyProofGenerator")
     }
@@ -359,12 +349,12 @@ where
         set_stark_proof_with_pis_target(out_buffer, &self.starky_proof, &inner_proof);
     }
 
-    #[cfg(feature = "new-plonky2")]
+   
     fn serialize(&self, _dst: &mut Vec<u8>) -> plonky2::util::serialization::IoResult<()> {
         unimplemented!()
     }
 
-    #[cfg(feature = "new-plonky2")]
+   
     fn deserialize(
         _src: &mut plonky2::util::serialization::Buffer,
     ) -> plonky2::util::serialization::IoResult<Self>

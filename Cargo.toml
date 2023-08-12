@@ -15,12 +15,12 @@ new-plonky2 = []
 
 [dependencies]
 anyhow = { version = "1.0.40", default-features = false }
-itertools = { version = "0.10.0", default-features = false }
+itertools =  "0.10.0"
 log = { version = "0.4.14", default-features = false }
-plonky2_maybe_rayon = "0.1.0"
-plonky2 ="0.1.2"
-plonky2-keccak256 = { git = "https://github.com/qope/plonky2-keccak256", rev = "c3e2af1" }
-starky = {git="https://github.com/qope/plonky2.git", rev="8211f5"}
+plonky2_maybe_rayon = {git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+plonky2 = {git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+plonky2-keccak256 = { git = "https://github.com/qope/plonky2-keccak256", rev = "48bb074" }
+starky = {git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
 static_assertions = "1.1.0"
 num = "0.4.0"
 num-bigint = "0.4.3"
