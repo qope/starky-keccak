@@ -106,8 +106,8 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
         }
     }
 
+    /// NOTICE: It is necessary to additionally constrain each limb of the input to be 32 bits.
     pub fn keccak256(&mut self, input: Vec<U32Target>) -> [U32Target; 8] {
-        // NOTICE: The limbs of `output` are secure because these are constrained as 32-bit integers by the starky circuit.
         let output: [U32Target; 8] = [(); 8].map(|_| self.add_virtual_target());
         self.keccak_io.push((input.clone(), output));
         let generator = Keccak256MockGenerator { input, output };
@@ -275,7 +275,7 @@ where
 {
 
     fn id(&self) -> String {
-        format!("Keccak256StarkyProofGenerator")
+        "Keccak256StarkyProofGenerator".to_string()
     }
 
     fn dependencies(&self) -> Vec<Target> {
