@@ -49,7 +49,8 @@ impl<F: RichField + Extendable<D>, const D: usize> KeccakStark<F, D> {
     pub fn config(&self) -> StarkConfig {
         let num_columns = NUM_COLUMNS + 1 + 4 * self.num_io;
         let num_public_inputs = 4 * NUM_INPUTS * self.num_io;
-        StarkConfig::standard_fast_config(num_columns, num_public_inputs)
+        let num_fixed_columns = 0;
+        StarkConfig::standard_fast_config(num_columns, num_public_inputs, num_fixed_columns)
     }
 
     fn generate_trace_rows(
@@ -255,6 +256,11 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for KeccakStark<F
         eval_keccak_round_circuit::<F, D>(builder, yield_constr, vars);
     }
 
+    // this is unsed
+    fn fixed_values(&self) -> Vec<PolynomialValues<F>> {
+        vec![]
+    }
+
     fn constraint_degree(&self) -> usize {
         3
     }
@@ -319,7 +325,7 @@ mod tests {
             &mut TimingTree::default(),
         )?;
         println!("Stark proving time: {:?}", now.elapsed());
-        verify_stark_proof(stark, inner_proof.clone(), &inner_config)?;
+        verify_stark_proof(stark, &None, inner_proof.clone(), &inner_config)?;
 
         let circuit_config = CircuitConfig::standard_recursion_config();
         let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
@@ -327,7 +333,7 @@ mod tests {
         let degree_bits = inner_proof.proof.recover_degree_bits(&inner_config);
         let pt = add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
         set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof);
-        verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &pt, &inner_config);
+        verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &None, &pt, &inner_config);
         let data = builder.build::<C>();
         let now = Instant::now();
         let proof = data.prove(pw)?;

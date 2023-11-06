@@ -134,11 +134,10 @@ pub fn solidity_keccak256_circuit_with_statements<F: RichField + Extendable<D>, 
         })
         .collect::<Vec<_>>();
     let (output, pi) = keccak256_circuit_with_statements(builder, input);
-    let output = output
-        .map(|v| {
-            let w = builder.split_le(v, 32);
-            builder.le_sum(w.chunks(8).rev().flatten())
-        });
+    let output = output.map(|v| {
+        let w = builder.split_le(v, 32);
+        builder.le_sum(w.chunks(8).rev().flatten())
+    });
 
     (output, pi)
 }
@@ -174,7 +173,13 @@ pub fn build_keccak256_circuit(input_len: usize) -> Keccak256Circuit {
     let (output_t, pi_t) = keccak256_circuit_with_statements(&mut builder, input_t.clone());
     let stark_proof_t =
         add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
-    verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &stark_proof_t, &inner_config);
+    verify_stark_proof_circuit::<F, C, S, D>(
+        &mut builder,
+        stark,
+        &None,
+        &stark_proof_t,
+        &inner_config,
+    );
     pi_t.iter()
         .zip(stark_proof_t.public_inputs.iter())
         .for_each(|(x, y)| {
@@ -227,7 +232,7 @@ pub fn generate_keccak256_proof(
         &mut TimingTree::default(),
     )
     .unwrap();
-    verify_stark_proof(stark, inner_proof.clone(), &inner_config).unwrap();
+    verify_stark_proof(stark, &None, inner_proof.clone(), &inner_config).unwrap();
 
     let mut pw = PartialWitness::new();
     set_stark_proof_with_pis_target(&mut pw, &circuit.stark_proof_t, &inner_proof);

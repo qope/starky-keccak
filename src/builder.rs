@@ -112,7 +112,6 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
         self.keccak_io.push((input.clone(), output));
         let generator = Keccak256MockGenerator { input, output };
 
-  
         self.builder
             .add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
                 generator.adapter(),
@@ -188,7 +187,6 @@ impl<F: RichField + Extendable<D>, const D: usize> CircuitBuilderWithKeccak<F, D
                     }
                 }
 
-
                 builder.add_generators(vec![plonky2::iop::generator::WitnessGeneratorRef::new(
                     generator.adapter(),
                 )]);
@@ -249,10 +247,17 @@ impl<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, const D: usize>
         let inner_config = StarkConfig::standard_fast_config(
             stark_config.num_columns,
             stark_config.num_public_inputs,
+            stark_config.num_fixed_columns,
         );
         let starky_proof =
             add_virtual_stark_proof_with_pis(builder, stark, &inner_config, degree_bits);
-        verify_stark_proof_circuit::<F, C, _, D>(builder, stark, &starky_proof, &inner_config);
+        verify_stark_proof_circuit::<F, C, _, D>(
+            builder,
+            stark,
+            &None,
+            &starky_proof,
+            &inner_config,
+        );
         for (x, y) in starky_pi.iter().zip(starky_proof.public_inputs.iter()) {
             builder.connect(*x, *y);
         }
@@ -273,7 +278,6 @@ where
     C: GenericConfig<D, F = F> + 'static,
     C::Hasher: AlgebraicHasher<F>,
 {
-
     fn id(&self) -> String {
         "Keccak256StarkyProofGenerator".to_string()
     }
@@ -330,6 +334,7 @@ where
         let inner_config = StarkConfig::standard_fast_config(
             stark_config.num_columns,
             stark_config.num_public_inputs,
+            stark_config.num_fixed_columns,
         );
         let trace = stark.generate_trace(perm_inputs, 8);
         let starky_pi = starky_pi
@@ -344,17 +349,15 @@ where
             &mut TimingTree::default(),
         )
         .unwrap();
-        verify_stark_proof(stark, inner_proof.clone(), &inner_config).unwrap();
+        verify_stark_proof(stark, &None, inner_proof.clone(), &inner_config).unwrap();
 
         set_stark_proof_with_pis_target(out_buffer, &self.starky_proof, &inner_proof);
     }
 
-   
     fn serialize(&self, _dst: &mut Vec<u8>) -> plonky2::util::serialization::IoResult<()> {
         unimplemented!()
     }
 
-   
     fn deserialize(
         _src: &mut plonky2::util::serialization::Buffer,
     ) -> plonky2::util::serialization::IoResult<Self>

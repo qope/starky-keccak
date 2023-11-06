@@ -534,7 +534,7 @@ checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 [[package]]
 name = "plonky2"
 version = "0.1.3"
-source = "git+https://github.com/InternetMaximalism/plonky2?rev=541e127#541e127c3ffec4e0e61e302f0e39bea4f943e19c"
+source = "git+https://github.com/InternetMaximalism/plonky2?rev=d33f6f77#d33f6f7769c8a969548ec7fb073fcfa50ec1556a"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
@@ -559,7 +559,7 @@ dependencies = [
 [[package]]
 name = "plonky2-keccak256"
 version = "0.1.0"
-source = "git+https://github.com/qope/plonky2-keccak256?rev=48bb074#48bb0741978e25e32e33071a98cbecfef2f6dc4f"
+source = "git+https://github.com/qope/plonky2-keccak256?rev=472fe96#472fe96d06b3922a1a22230040207c492270f9c1"
 dependencies = [
  "anyhow",
  "hex",
@@ -587,7 +587,7 @@ dependencies = [
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "0.1.0"
-source = "git+https://github.com/InternetMaximalism/plonky2?rev=541e127#541e127c3ffec4e0e61e302f0e39bea4f943e19c"
+source = "git+https://github.com/InternetMaximalism/plonky2?rev=d33f6f77#d33f6f7769c8a969548ec7fb073fcfa50ec1556a"
 dependencies = [
  "rayon",
 ]
@@ -766,7 +766,7 @@ dependencies = [
 [[package]]
 name = "starky"
 version = "0.1.1"
-source = "git+https://github.com/InternetMaximalism/plonky2?rev=541e127#541e127c3ffec4e0e61e302f0e39bea4f943e19c"
+source = "git+https://github.com/InternetMaximalism/plonky2?rev=d33f6f77#d33f6f7769c8a969548ec7fb073fcfa50ec1556a"
 dependencies = [
  "anyhow",
  "itertools 0.10.5",

@@ -26,7 +26,10 @@ use starky::{
 };
 
 use crate::{
-    keccak256_circuit::{keccak256, keccak256_circuit_with_statements, solidity_keccak256, solidity_keccak256_circuit_with_statements},
+    keccak256_circuit::{
+        keccak256, keccak256_circuit_with_statements, solidity_keccak256,
+        solidity_keccak256_circuit_with_statements,
+    },
     keccak_stark::{KeccakStark, NUM_INPUTS, NUM_ROUNDS},
 };
 
@@ -66,7 +69,10 @@ pub fn multi_keccak256_circuit_with_statements<F: RichField + Extendable<D>, con
     (outputs, pi)
 }
 
-pub fn multi_solidity_keccak256_circuit_with_statements<F: RichField + Extendable<D>, const D: usize>(
+pub fn multi_solidity_keccak256_circuit_with_statements<
+    F: RichField + Extendable<D>,
+    const D: usize,
+>(
     builder: &mut CircuitBuilder<F, D>,
     inputs: Vec<Vec<Target>>,
 ) -> (Vec<[Target; 8]>, Vec<Target>) {
@@ -116,7 +122,13 @@ pub fn build_multi_keccak256_circuit(input_lens: Vec<usize>) -> MultiKeccak256Ci
     let (outputs_t, pi_t) = multi_keccak256_circuit_with_statements(&mut builder, inputs_t.clone());
     let stark_proof_t =
         add_virtual_stark_proof_with_pis(&mut builder, stark, &inner_config, degree_bits);
-    verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, &stark_proof_t, &inner_config);
+    verify_stark_proof_circuit::<F, C, S, D>(
+        &mut builder,
+        stark,
+        &None,
+        &stark_proof_t,
+        &inner_config,
+    );
     pi_t.iter()
         .zip(stark_proof_t.public_inputs.iter())
         .for_each(|(x, y)| {
@@ -173,7 +185,7 @@ pub fn generate_multi_keccak256_proof(
         &mut TimingTree::default(),
     )
     .unwrap();
-    verify_stark_proof(stark, inner_proof.clone(), &inner_config).unwrap();
+    verify_stark_proof(stark, &None, inner_proof.clone(), &inner_config).unwrap();
 
     let mut pw = PartialWitness::new();
     set_stark_proof_with_pis_target(&mut pw, &circuit.stark_proof_t, &inner_proof);
