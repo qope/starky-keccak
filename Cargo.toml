@@ -19,7 +19,7 @@ itertools =  "0.10.0"
 log = { version = "0.4.14", default-features = false }
 plonky2_maybe_rayon = {git="https://github.com/InternetMaximalism/plonky2", rev="d33f6f77"}
 plonky2 = {git="https://github.com/InternetMaximalism/plonky2", rev="d33f6f77"}
-plonky2-keccak256 = { git = "https://github.com/qope/plonky2-keccak256", rev = "472fe96" }
+plonky2-keccak256 = { git = "https://github.com/qope/plonky2-keccak256", rev = "b899b25" }
 starky = {git="https://github.com/InternetMaximalism/plonky2", rev="d33f6f77"}
 static_assertions = "1.1.0"
 num = "0.4.0"

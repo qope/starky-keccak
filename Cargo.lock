@@ -559,7 +559,7 @@ dependencies = [
 [[package]]
 name = "plonky2-keccak256"
 version = "0.1.0"
-source = "git+https://github.com/qope/plonky2-keccak256?rev=472fe96#472fe96d06b3922a1a22230040207c492270f9c1"
+source = "git+https://github.com/qope/plonky2-keccak256?rev=b899b25#b899b25a39c6e29e936bc716a4fb11f59bdb04c0"
 dependencies = [
  "anyhow",
  "hex",
